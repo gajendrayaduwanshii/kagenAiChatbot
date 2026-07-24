@@ -27,7 +27,6 @@ export function buildProductComparison(
       url: item.url,
       image: item.image,
       badge: "product",
-      date: item.modified,
     })),
     suggestions: [
       "Explain Kagen PRISM",
@@ -65,7 +64,6 @@ export function buildContentDetail(
       url: item.url,
       image: item.image,
       badge: item.type,
-      date: item.modified,
     })),
     suggestions:
       context === "about"

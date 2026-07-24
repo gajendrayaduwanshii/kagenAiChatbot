@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { corsHeaders } from "@/lib/cors";
+import { detectIntent } from "@/lib/intent-detector";
+import { fetchKagen } from "@/lib/kagen-api";
 import { getLLMProvider } from "@/lib/llm";
 import { assistantResponseSchema } from "@/lib/llm/schemas";
 import { rateLimit } from "@/lib/rate-limit";
+import { buildSearchDocument } from "@/lib/search-index";
 import { retrieveFromIndex } from "@/lib/search-retriever";
 import type { NormalizedContent } from "@/types/wordpress";
 
@@ -89,22 +92,125 @@ export async function POST(request: NextRequest) {
       parsed.error.issues[0]?.message ?? "Invalid request.",
       cors.headers,
     );
+  let preparedQuery;
   try {
-    const retrieval = await retrieveFromIndex(parsed.data.message);
+    preparedQuery = await getLLMProvider().prepareMultilingualQuery(
+      parsed.data.message,
+    );
+  } catch {
+    return error(
+      503,
+      "AI_TRANSLATION_UNAVAILABLE",
+      "The query language could not be processed safely. Please try again.",
+      cors.headers,
+    );
+  }
+  const effectiveMessage = preparedQuery.englishQuery;
+  const intent = detectIntent(effectiveMessage);
+  // Contact is a deterministic navigation intent. Fetch only the published
+  // Contact Us page and return one API-backed card; never run broad retrieval
+  // that can mix in unrelated posts, case studies, or privacy content.
+  if (intent === "contact") {
+    try {
+      const item = (await fetchKagen("/pages/contact-us"))[0];
+      if (!item) throw new Error("Contact page is unavailable");
+      const document = buildSearchDocument(item);
+      const description =
+        document.textSegments.find(
+          (segment) => segment.toLowerCase() !== document.title.toLowerCase(),
+        ) ?? "Open the official Kagen Contact Us page.";
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            answer: preparedQuery.contactAnswer,
+            cards: [
+              {
+                type: "page",
+                title: document.title,
+                description,
+                url: document.url,
+                image: document.image,
+                badge: "page",
+              },
+            ],
+            sources: [],
+            suggestions: [],
+            confidence: "high",
+            insufficientContext: false,
+          },
+        },
+        { headers: { ...cors.headers, "Cache-Control": "no-store" } },
+      );
+    } catch {
+      return error(
+        503,
+        "CONTENT_UNAVAILABLE",
+        "Kagen’s contact page is temporarily unavailable.",
+        cors.headers,
+      );
+    }
+  }
+  // A request for blogs means the published collection, not a keyword search
+  // for the word "blog". This also handles conversational Hindi/English queries
+  // such as "mujhe aapke blogs ke bare mein batao".
+  if (intent === "blogs") {
+    try {
+      const posts = (await fetchKagen("/content?type=post&per_page=100"))
+        .map(buildSearchDocument)
+        .sort(
+          (a, b) => Date.parse(b.modified ?? "") - Date.parse(a.modified ?? ""),
+        )
+        .slice(0, 5);
+      if (!posts.length) throw new Error("Blog collection is unavailable");
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            answer: preparedQuery.blogsAnswer,
+            cards: posts.map((document) => ({
+              type: "blog",
+              title: document.title,
+              description: (
+                document.descriptions[0] ??
+                document.textSegments[0] ??
+                document.title
+              ).slice(0, 500),
+              url: document.url,
+              image: document.image,
+              badge: "blog",
+            })),
+            sources: posts.map((document) => ({
+              title: document.title,
+              url: document.url,
+            })),
+            suggestions: [],
+            confidence: "high",
+            insufficientContext: false,
+          },
+        },
+        { headers: { ...cors.headers, "Cache-Control": "no-store" } },
+      );
+    } catch {
+      return error(
+        503,
+        "CONTENT_UNAVAILABLE",
+        "Kagen’s blog collection is temporarily unavailable.",
+        cors.headers,
+      );
+    }
+  }
+  try {
+    const retrieval = await retrieveFromIndex(effectiveMessage);
     if (!retrieval.reliableMatchFound) {
       return NextResponse.json(
         {
           success: true,
           data: {
-            answer:
-              "I could not find reliable information in the available Kagen website content.",
+            answer: preparedQuery.fallbackAnswer,
             cards: [],
             sources: [],
-            suggestions: [
-              "Show available Kagen products",
-              "Tell me about Kagen PRISM",
-              "Tell me about Kagen ADD",
-            ],
+            suggestions: [],
             confidence: "low",
             insufficientContext: true,
           },
@@ -134,7 +240,9 @@ export async function POST(request: NextRequest) {
     let response;
     try {
       response = await getLLMProvider().generateStructuredResponse({
-        message: parsed.data.message,
+        message: effectiveMessage,
+        responseLanguage: preparedQuery.responseLanguage,
+        fallbackAnswer: preparedQuery.fallbackAnswer,
         history: parsed.data.history.slice(-10),
         context,
       });
@@ -165,7 +273,6 @@ export async function POST(request: NextRequest) {
         url: document.url,
         image: document.image,
         badge: document.type,
-        date: document.modified,
       })),
       sources: selectedMatches.map(({ document }) => ({
         title: document.title,

@@ -7,7 +7,6 @@ export const cardSchema = z.object({
   url: z.string().url(),
   image: z.string().url().optional(),
   badge: z.string().max(50).optional(),
-  date: z.string().max(50).optional(),
 });
 export const assistantResponseSchema = z.object({
   answer: z.string().min(1).max(8000),

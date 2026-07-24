@@ -352,14 +352,6 @@ a {
   font-weight: 700;
   margin-top: auto;
 }
-.card-date {
-  font-size: 11px;
-  color: #7a8497;
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  margin-bottom: 6px;
-}
 .sources {
   margin-top: 12px;
   font-size: 12px;
