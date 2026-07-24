@@ -1,0 +1,189 @@
+"use client";
+
+import { Check, Copy, MessageCircle, X } from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+
+type Position = "bottom-right" | "bottom-left";
+const deployment =
+  typeof window === "undefined"
+    ? "http://localhost:3000"
+    : window.location.origin;
+
+export default function WidgetPreview() {
+  const [color, setColor] = useState("#0063ce");
+  const [position, setPosition] = useState<Position>("bottom-right");
+  const [width, setWidth] = useState(400);
+  const [height, setHeight] = useState(650);
+  const [openDefault, setOpenDefault] = useState(false);
+  const [mobile, setMobile] = useState(false);
+  const [open, setOpen] = useState(openDefault);
+  const [copied, setCopied] = useState(false);
+  const query = useMemo(
+    () =>
+      new URLSearchParams({
+        title: "Ask Kagen AI",
+        welcomeMessage: "Hi! How can I help you explore Kagen?",
+        primaryColor: color,
+        position,
+        apiUrl: `${deployment}/api/chat`,
+      }).toString(),
+    [color, position],
+  );
+  const snippet = `<script
+  src="${deployment}/kagen-chat-widget.js"
+  data-api-url="${deployment}/api/chat"
+  data-title="Ask Kagen AI"
+  data-welcome-message="Hi! How can I help you explore Kagen?"
+  data-primary-color="${color}"
+  data-position="${position}"
+  data-button-label="Chat with Kagen"
+  data-width="${width}"
+  data-height="${height}"
+  data-open-by-default="${openDefault}"
+  defer
+></script>`;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <main className="preview-builder">
+      <header>
+        <Link href="/" className="brand">
+          <span className="brand-mark">K</span>
+          <span>KAGEN</span>
+        </Link>
+        <div>
+          <h1>Widget configurator</h1>
+          <p>Customize, preview, and copy your installation snippet.</p>
+        </div>
+      </header>
+      <div className="builder-grid">
+        <aside className="config-panel">
+          <label>
+            Primary color{" "}
+            <div className="color-control">
+              <input
+                type="color"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+              />
+              <input
+                value={color}
+                onChange={(e) =>
+                  /^#[0-9a-f]{0,6}$/i.test(e.target.value) &&
+                  setColor(e.target.value)
+                }
+              />
+            </div>
+          </label>
+          <label>
+            Position{" "}
+            <select
+              value={position}
+              onChange={(e) => setPosition(e.target.value as Position)}
+            >
+              <option value="bottom-right">Bottom right</option>
+              <option value="bottom-left">Bottom left</option>
+            </select>
+          </label>
+          <label>
+            Width: {width}px{" "}
+            <input
+              type="range"
+              min="320"
+              max="520"
+              value={width}
+              onChange={(e) => setWidth(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            Height: {height}px{" "}
+            <input
+              type="range"
+              min="450"
+              max="850"
+              value={height}
+              onChange={(e) => setHeight(Number(e.target.value))}
+            />
+          </label>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={openDefault}
+              onChange={(e) => {
+                setOpenDefault(e.target.checked);
+                setOpen(e.target.checked);
+              }}
+            />{" "}
+            Open by default
+          </label>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={mobile}
+              onChange={(e) => setMobile(e.target.checked)}
+            />{" "}
+            Mobile preview
+          </label>
+        </aside>
+        <section className={`preview-stage ${mobile ? "mobile-stage" : ""}`}>
+          <nav>
+            <span>Kagen</span>
+            <span>Products　Resources　About</span>
+          </nav>
+          <div className="stage-copy">
+            <small>AI-FIRST CONTENT INTELLIGENCE</small>
+            <h2>Enterprise knowledge, activated.</h2>
+            <p>
+              Explore secure content intelligence solutions built for complex
+              organizations.
+            </p>
+          </div>
+          {open && (
+            <div
+              className={`stage-widget ${position}`}
+              style={{
+                width: mobile ? "100%" : Math.min(width, 520),
+                height: mobile ? "100%" : Math.min(height, 720),
+              }}
+            >
+              <iframe src={`/embed?${query}`} title="Kagen widget preview" />
+              <button onClick={() => setOpen(false)} aria-label="Close preview">
+                <X />
+              </button>
+            </div>
+          )}
+          {!open && (
+            <button
+              className={`stage-launcher ${position}`}
+              style={{ background: color }}
+              onClick={() => setOpen(true)}
+            >
+              <MessageCircle />
+              <span>Chat with Kagen</span>
+            </button>
+          )}
+        </section>
+      </div>
+      <section className="snippet-panel">
+        <div>
+          <h2>Installation snippet</h2>
+          <button onClick={copy}>
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+            {copied ? "Copied" : "Copy code"}
+          </button>
+        </div>
+        <pre>
+          <code>{snippet}</code>
+        </pre>
+      </section>
+    </main>
+  );
+}

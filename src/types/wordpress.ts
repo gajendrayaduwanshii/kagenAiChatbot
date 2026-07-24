@@ -1,0 +1,32 @@
+export type JsonValue =
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+export interface WordPressItem {
+  id: number;
+  type?: string;
+  slug?: string;
+  status?: string;
+  date?: string;
+  modified?: string;
+  link?: string;
+  title?: { rendered?: string } | string;
+  excerpt?: { rendered?: string } | string;
+  content?: { rendered?: string } | string;
+  featured_image?: string | { url?: string; source_url?: string };
+  acf?: JsonValue;
+}
+
+export interface NormalizedContent {
+  id: number;
+  type: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  plainText: string;
+  url: string;
+  image?: string;
+  modified?: string;
+  acfText: string;
+  extractedUrls: string[];
+  score?: number;
+}
