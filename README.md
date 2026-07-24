@@ -1,119 +1,408 @@
-# Kagen AI Assistant
+# Kagen AI Chatbot
 
-A production-oriented Next.js website assistant grounded in content from Kagen's WordPress REST API. It provides conversational Markdown answers, dynamically generated content cards, source links, suggestions, a full-page chat, and a floating-widget preview.
+Production-oriented Next.js chatbot and embeddable website widget grounded
+strictly in Kagen's published WordPress content.
 
-## Architecture
+> **Developer and AI handoff:** Read this file completely before changing the
+> project. It documents the current architecture, important constraints, source
+> files, APIs, retrieval behavior, setup, tests, widget lifecycle, and deployment.
+> Inspect only the focused files listed for the task after reading this document.
 
-- Next.js App Router with React Server Components for page shells and client components only for chat interaction.
-- `POST /api/chat` validates requests, enforces CORS/rate limits, detects intent, retrieves only relevant WordPress content, normalizes/ranks it, and invokes a provider-independent LLM layer.
-- WordPress responses—including arbitrary nested ACF values—are converted into bounded plain text. Raw HTML is never rendered.
-- OpenAI is isolated behind `LLMProvider`. Model output is Zod-validated and all card/source URLs are checked against retrieved URLs.
-- Strict mode returns an explicit error if WordPress content is unavailable or the LLM response cannot be validated; it never substitutes a generic fallback answer.
-- Public WordPress fetches revalidate every five minutes; chat responses use `no-store`.
+## Current status
 
-## Local setup
+Last verified: **24 July 2026**
 
-Requirements: a current Node.js LTS release, npm, and access to the Kagen WordPress API.
+- Next.js `16.2.11`, App Router, React, TypeScript, Zod.
+- AI provider: NVIDIA NIM through its OpenAI-compatible API.
+- Active model configuration: `meta/llama-3.1-8b-instruct`.
+- WordPress is the only knowledge source. There is no hardcoded production
+  content and no generic-answer fallback.
+- Local WordPress inventory at last verification: 72 published objects
+  (13 pages, 42 posts, 13 case studies, 3 products, and 1 event).
+- Complete `content.rendered`, `excerpt.rendered`, title, and recursive ACF data
+  are indexed.
+- Mid-article sentences, partial phrases, keywords, and supported paraphrases
+  are retrievable.
+- Primary brand color is `#0063ce`.
+- The widget supports Next.js preview, WordPress, static HTML, and other sites.
+- Latest quality gate: 38 tests, ESLint, TypeScript, and production build pass.
+
+## Non-negotiable product rules
+
+Keep these invariants unless the owner explicitly requests a change:
+
+1. WordPress API content is the sole source of factual Kagen answers.
+2. Never add hardcoded product, article, company, or marketing fallback content.
+3. Never search titles only.
+4. Search every published WordPress object and all recursive ACF values.
+5. Never invent URLs, capabilities, prices, customers, claims, or metrics.
+6. If retrieval finds no reliable evidence, respond exactly:
+
+   ```text
+   I could not find reliable information in the available Kagen website content.
+   ```
+
+7. If WordPress or the LLM is unavailable, return an explicit service error;
+   do not silently generate a generic answer.
+8. Keep `AI_API_KEY` server-only. Never expose it through `NEXT_PUBLIC_*`,
+   browser JavaScript, cards, logs, or documentation.
+9. Preserve existing `/api/chat`, `/embed`, and widget-loader contracts.
+10. Product/detail chips and suggestions must trigger real API-backed behavior.
+11. Disabled pages must not be substituted; use only currently published API
+    content.
+
+## Quick start
+
+Requirements:
+
+- Current Node.js LTS
+- npm
+- Local or public access to the Kagen WordPress API
+- Valid NVIDIA/OpenAI-compatible API key
+
+This project currently uses the root `.env` file as its active local
+configuration.
 
 ```bash
 npm install
-cp .env.example .env.local
 npm run dev
 ```
 
-Open `http://localhost:3000`. The widget preview is at `/widget-preview`; health is at `/api/health`.
+Open:
 
-## Environment variables
+- Application: `http://localhost:3000`
+- Widget configurator: `http://localhost:3000/widget-preview`
+- Static widget test: `http://localhost:3000/widget-test.html`
+- Health check: `http://localhost:3000/api/health`
 
-| Name                       | Purpose                                  |
-| -------------------------- | ---------------------------------------- |
-| `NEXT_PUBLIC_APP_NAME`     | Public UI name                           |
-| `KAGEN_API_BASE_URL`       | Server-only WordPress API base           |
-| `KAGEN_PUBLIC_SITE_URL`    | Public base for card and source URLs     |
-| `AI_PROVIDER`              | Provider selector; `nvidia` or `openai`  |
-| `AI_API_KEY`               | Server-only provider secret              |
-| `AI_MODEL`                 | Provider model ID                        |
-| `AI_BASE_URL`              | Optional OpenAI-compatible API base URL  |
-| `ALLOWED_ORIGINS`          | Comma-separated exact origins            |
-| `NEXT_PUBLIC_CHAT_API_URL` | Browser chat route, normally `/api/chat` |
+Before handing off a change:
 
-Never prefix the AI key with `NEXT_PUBLIC_`.
-
-### WordPress
-
-For local WordPress use:
-
-```env
-KAGEN_API_BASE_URL=http://localhost/wp-kagen/wp-json/kagen/v1
-KAGEN_PUBLIC_SITE_URL=http://localhost/wp-kagen
+```bash
+npm run format
+npm test -- --run
+npm run lint
+npm run typecheck
+npm run build
 ```
 
-For production:
+## Environment
+
+Use `.env.example` as the public template. Never commit a real key.
+
+```env
+NEXT_PUBLIC_APP_NAME=Kagen AI Assistant
+
+KAGEN_API_BASE_URL=http://localhost/wp-kagen/wp-json/kagen/v1
+KAGEN_PUBLIC_SITE_URL=http://localhost/wp-kagen
+
+AI_PROVIDER=nvidia
+AI_MODEL=meta/llama-3.1-8b-instruct
+AI_BASE_URL=https://integrate.api.nvidia.com/v1
+AI_API_KEY=replace-with-a-server-side-secret
+
+ALLOWED_ORIGINS=http://localhost:3000,https://kagen.ai,https://www.kagen.ai
+WIDGET_ALLOWED_ORIGINS=http://localhost:3000,https://kagen.ai,https://www.kagen.ai
+NEXT_PUBLIC_CHAT_API_URL=/api/chat
+```
+
+| Variable                   | Use                                                |
+| -------------------------- | -------------------------------------------------- |
+| `KAGEN_API_BASE_URL`       | Server-side Kagen REST API root                    |
+| `KAGEN_PUBLIC_SITE_URL`    | Rewrites local WP links to the correct public site |
+| `AI_PROVIDER`              | Provider identifier (`nvidia` is active)           |
+| `AI_MODEL`                 | OpenAI-compatible model ID                         |
+| `AI_BASE_URL`              | OpenAI-compatible API base                         |
+| `AI_API_KEY`               | Server-only provider secret                        |
+| `ALLOWED_ORIGINS`          | Exact origins accepted by application APIs         |
+| `WIDGET_ALLOWED_ORIGINS`   | Exact external widget host origins                 |
+| `NEXT_PUBLIC_CHAT_API_URL` | Browser chat endpoint, normally `/api/chat`        |
+
+Compatibility aliases `LLM_PROVIDER`, `LLM_MODEL`, and `LLM_API_KEY` remain
+supported in `src/lib/env.ts`.
+
+### Production environment
 
 ```env
 KAGEN_API_BASE_URL=https://kagen.ai/wp-json/kagen/v1
 KAGEN_PUBLIC_SITE_URL=https://kagen.ai
+AI_PROVIDER=nvidia
+AI_MODEL=meta/llama-3.1-8b-instruct
+AI_BASE_URL=https://integrate.api.nvidia.com/v1
+AI_API_KEY=replace-with-production-secret
+ALLOWED_ORIGINS=https://kagen.ai,https://www.kagen.ai
+WIDGET_ALLOWED_ORIGINS=https://kagen.ai,https://www.kagen.ai
+NEXT_PUBLIC_CHAT_API_URL=/api/chat
 ```
 
-The configured WordPress routes must be reachable from the Next.js server. A WordPress instance on `localhost` cannot be reached by a Vercel deployment; Vercel testing requires a publicly accessible HTTPS endpoint.
+A Vercel deployment cannot access WordPress running on a developer's
+`localhost`. Production must use a publicly reachable HTTPS WordPress endpoint.
 
-### LLM
+## System flow
 
-For NVIDIA NIM, set `AI_PROVIDER=nvidia`, `AI_BASE_URL=https://integrate.api.nvidia.com/v1`, `AI_API_KEY`, and a model such as `meta/llama-3.1-8b-instruct` in `AI_MODEL`. OpenAI-compatible providers use the same isolated adapter. A valid key is required; strict mode does not generate fallback answers.
-
-## Commands
-
-```bash
-npm run dev
-npm run test
-npm run lint
-npm run typecheck
-npm run build
-npm start
+```text
+User message
+  → POST /api/chat
+  → Zod request validation
+  → exact-origin CORS + rate limiting
+  → fetch all published WordPress objects
+  → recursive full-content extraction
+  → paragraph-preserving overlapping chunks
+  → relevance ranking across the complete index
+  → Top 5 documents/chunks
+  → all retrieved chunks sent to the configured LLM
+  → strict grounded JSON response
+  → server-generated WordPress cards and source links
+  → Zod response validation
+  → chatbot UI
 ```
 
-## Deploying to Vercel
+## Retrieval system
 
-1. Import the repository in Vercel.
-2. Add every `.env.example` value in Project Settings → Environment Variables, using a public HTTPS WordPress URL.
-3. Keep `LLM_API_KEY` server-side and apply it only to appropriate environments.
-4. Deploy; Vercel detects Next.js and runs `npm run build`.
-5. Test `/api/health`, `/api/chat`, the home page, and `/widget-preview`.
+The current retrieval implementation replaced earlier title/heading-heavy
+matching.
 
-## Security notes
+### Indexed content
 
-Inputs, history, structured model output, and URLs are bounded and validated. The route uses exact-origin CORS, server-side secrets, request timeouts, safe client rendering, prompt-injection guidance, and sanitized WordPress context. The included in-memory IP limiter is a basic per-instance safeguard only; use Upstash or Vercel KV for distributed production enforcement. No personal data is intentionally collected, and the browser session ID is random and currently used only as optional request metadata.
+`buildSearchDocument` indexes:
+
+- `title.rendered`
+- `excerpt.rendered`
+- complete `content.rendered`
+- every ACF string recursively
+- nested arrays and objects
+- ACF groups and repeaters
+- flexible-content layouts
+- FAQs (`question` and `answer`)
+- tabs and rich text
+- Gutenberg-rendered content
+- all published pages and custom post types
+
+Media metadata, filenames, dimensions, and duplicate attachment noise are
+excluded. Useful image URLs, links, alt text, headings, and descriptions remain
+available for cards and context.
+
+### Normalization
+
+Searchable text is:
+
+- HTML-stripped
+- HTML-entity-decoded
+- lowercased for matching
+- punctuation-normalized
+- whitespace-collapsed
+- duplicate/noisy segments removed
+
+Original cleaned text is retained for the LLM context.
+
+### Chunking
+
+- Target size: 1,800 characters
+- Contextual overlap: 320 characters
+- Paragraph and sentence boundaries are preserved where possible
+- Long rich-text runs use a word-safe fallback
+- Each Top 5 result contributes its highest-ranked substantial chunk
+
+Do not flatten the entire article back into a single small/truncated field.
+
+### Ranking
+
+Retrieval combines:
+
+- exact title and alias boosts
+- exact phrase matches anywhere in content
+- partial-title matching
+- ordered trigram and bigram matching
+- corpus-aware inverse document frequency (IDF)
+- meaningful-token coverage
+- lightweight stemming
+- bounded synonym expansion for common paraphrases
+- content-quality penalties
+- penalties for utility pages such as sitemap/privacy/thank-you
+
+No vector database or external retrieval service is required.
+
+The derived index is cached for five minutes, matching WordPress fetch
+revalidation. Tests bypass this module cache for isolation.
+
+### Verified regression
+
+The query:
+
+```text
+most vendors demonstrate near-perfect conversations in controlled environments,
+real-world conditions are far more complex.
+```
+
+is present in the middle of a WordPress article. Against the actual 72-object
+local corpus it ranks:
+
+1. `The 2026 Enterprise AI and AI Voice Agent Buying Guide You Need to Bookmark`
+2. Match signals include `exact-content-phrase` and `ordered-trigrams`
+
+The matching sentence in `core.test.ts` is an intentional regression fixture.
+Test fixtures are never imported by production code or bundled into the
+production application.
+
+## LLM grounding
+
+The provider abstraction is OpenAI-compatible; NVIDIA NIM is the active
+provider. The system prompt:
+
+- identifies the supplied context as the Top 5 retrieved Kagen chunks
+- requires answers only from explicit context evidence
+- supports mid-article quotations and paraphrased questions
+- forbids invented claims and links
+- uses the exact insufficient-context sentence
+- treats WordPress content as untrusted reference data
+- requires structured JSON
+
+The LLM does not create cards or sources. The API route creates them directly
+from retrieved WordPress documents.
+
+## API contracts
+
+### `POST /api/chat`
+
+Request:
+
+```json
+{
+  "message": "What is Kagen PRISM?",
+  "history": [
+    {
+      "role": "user",
+      "content": "Tell me about Kagen products"
+    }
+  ],
+  "sessionId": "optional-client-session-id"
+}
+```
+
+Successful response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "answer": "Grounded answer",
+    "cards": [],
+    "suggestions": [],
+    "sources": [],
+    "confidence": "high",
+    "insufficientContext": false
+  }
+}
+```
+
+Relevant failure codes:
+
+- `400 INVALID_REQUEST`
+- `403 ORIGIN_NOT_ALLOWED`
+- `429 RATE_LIMITED`
+- `503 CONTENT_UNAVAILABLE`
+- `503 AI_RESPONSE_UNAVAILABLE`
+- `503 INVALID_AI_RESPONSE`
+
+### `POST /api/debug/retrieval`
+
+Development-only inspection endpoint:
+
+```json
+{
+  "query": "sentence or keywords"
+}
+```
+
+It returns indexed-document count, scores, matched fields, selected passages,
+and official URLs. It returns 404 in production.
+
+### `GET /api/health`
+
+Returns service identity and timestamp. It is intentionally lightweight and
+does not call WordPress or the LLM.
+
+## WordPress REST API
+
+Local base:
+
+```text
+http://localhost/wp-kagen/wp-json/kagen/v1
+```
+
+Production base:
+
+```text
+https://kagen.ai/wp-json/kagen/v1
+```
+
+The retrieval index uses:
+
+```http
+GET /content?type=all&per_page=100&page=1
+```
+
+Pagination follows `X-WP-TotalPages`, and all pages are fetched. Other useful
+read-only endpoints:
+
+```http
+GET /content?type=page&per_page=100
+GET /content?type=post&per_page=100
+GET /content?type=case-studies&per_page=100
+GET /content?type=product&per_page=100
+GET /content?type=event&per_page=100
+GET /post-types
+GET /pages/home
+GET /pages/products
+GET /pages/kagen-prism-ai-first-content-intelligence-platform
+```
+
+New published objects automatically appear in the complete-content index after
+the five-minute cache/revalidation window.
 
 ## Widget integration
 
-The production widget is a small dependency-free loader at `/kagen-chat-widget.js`. It creates a launcher immediately and lazily creates a sandboxed `/embed` iframe when opened, isolating the host page from the chat application’s styles and dependencies.
+The dependency-free loader is:
+
+```text
+public/kagen-chat-widget.js
+```
+
+It creates a fixed launcher and lazily loads a sandboxed `/embed` iframe. Host
+styles and chatbot styles remain isolated.
 
 ```html
 <script
-  src="https://YOUR-VERCEL-DOMAIN.vercel.app/kagen-chat-widget.js"
-  data-api-url="https://YOUR-VERCEL-DOMAIN.vercel.app/api/chat"
+  src="https://YOUR-CHAT-DOMAIN/kagen-chat-widget.js"
+  data-api-url="https://YOUR-CHAT-DOMAIN/api/chat"
   data-title="Ask Kagen AI"
   data-welcome-message="Hi! How can I help you explore Kagen?"
-  data-primary-color="#0063CE"
+  data-primary-color="#0063ce"
   data-position="bottom-right"
   data-button-label="Chat with Kagen"
-  data-allowed-domain="kagen.ai"
+  data-width="400"
+  data-height="650"
+  data-open-by-default="false"
   defer
 ></script>
 ```
 
-The simplified form uses safe defaults:
+Supported attributes:
 
-```html
-<script
-  src="https://YOUR-VERCEL-DOMAIN.vercel.app/kagen-chat-widget.js"
-  defer
-></script>
-```
+- `data-api-url`
+- `data-title`
+- `data-welcome-message`
+- `data-primary-color`
+- `data-position` (`bottom-right` or `bottom-left`)
+- `data-button-label`
+- `data-logo-url`
+- `data-open-by-default`
+- `data-z-index`
+- `data-width` (320–520)
+- `data-height` (450–850)
+- `data-mobile-fullscreen`
+- `data-allowed-domain`
 
-Supported data attributes are `api-url`, `title`, `welcome-message`, `primary-color`, `position`, `button-label`, `logo-url`, `open-by-default`, `z-index`, `width`, `height`, `mobile-fullscreen`, and `allowed-domain`. Dimensions are bounded (320–520px wide and 450–850px high), colors must be six-digit hex, and remote URLs must use HTTPS.
-
-The one documented global is:
+Public API:
 
 ```js
 window.KagenChat.open();
@@ -123,37 +412,46 @@ window.KagenChat.isOpen();
 window.KagenChat.destroy();
 ```
 
-The loader dispatches `kagen-chat:ready`, `kagen-chat:open`, `kagen-chat:close`, and `kagen-chat:error`. The chat also dispatches privacy-friendly `kagen-chat:message-submitted`, `kagen-chat:response-received`, `kagen-chat:api-error`, and link interaction events without including message content.
+### Close behavior
+
+There are two visible close interactions:
+
+- The launcher becomes a working close button while open.
+- The header X inside the iframe sends `KAGEN_CHAT_CLOSE`.
+
+The loader also places a parent-controlled transparent hit area over the visible
+header X. This guarantees closing when a host page is opened directly through
+`file://`, where browsers use an opaque `"null"` origin and iframe messaging
+can be inconsistent. The parent still validates widget message origin and
+iframe source for normal message handling.
+
+### Static HTML testing
+
+The host HTML may be opened directly, but the chatbot application must still be
+available at the URLs used by the script and API:
+
+```html
+<script
+  src="http://localhost:3000/kagen-chat-widget.js?v=2"
+  data-api-url="http://localhost:3000/api/chat"
+  data-primary-color="#0063ce"
+  defer
+></script>
+```
+
+For local use, run `npm run dev`. In production, replace localhost with the
+deployed chatbot domain. An HTTPS host cannot load an HTTP widget because the
+browser blocks mixed content.
 
 ### WordPress installation
 
-**Method 1 — theme footer**
-
-```php
-function kagen_add_ai_chat_widget() {
-?>
-<script
-  src="https://YOUR-VERCEL-DOMAIN.vercel.app/kagen-chat-widget.js"
-  data-api-url="https://YOUR-VERCEL-DOMAIN.vercel.app/api/chat"
-  data-title="Ask Kagen AI"
-  data-primary-color="#0063CE"
-  data-position="bottom-right"
-  defer
-></script>
-<?php
-}
-add_action('wp_footer', 'kagen_add_ai_chat_widget');
-```
-
-Place this in a child theme or site-specific plugin so theme updates do not remove it.
-
-**Method 2 — WordPress enqueue API (recommended)**
+Recommended enqueue method:
 
 ```php
 function kagen_enqueue_ai_chat_widget() {
   wp_enqueue_script(
     'kagen-ai-chat-widget',
-    'https://YOUR-VERCEL-DOMAIN.vercel.app/kagen-chat-widget.js',
+    'https://YOUR-CHAT-DOMAIN/kagen-chat-widget.js',
     array(),
     null,
     true
@@ -165,104 +463,168 @@ function kagen_chat_widget_attributes($tag, $handle) {
   if ('kagen-ai-chat-widget' !== $handle) {
     return $tag;
   }
+
   return str_replace(
     ' src=',
-    ' data-title="Ask Kagen AI" data-primary-color="#0063CE" data-position="bottom-right" src=',
+    ' data-api-url="https://YOUR-CHAT-DOMAIN/api/chat" data-title="Ask Kagen AI" data-primary-color="#0063ce" data-position="bottom-right" src=',
     $tag
   );
 }
 add_filter('script_loader_tag', 'kagen_chat_widget_attributes', 10, 2);
 ```
 
-**Method 3 — header/footer script feature**
+Use a child theme or site-specific plugin so theme updates do not remove it.
 
-Use a trusted header/footer custom-code facility already approved for the site. Paste the script immediately before the closing `</body>` tag. No paid plugin is required.
+### Widget events
 
-### Static HTML, Webflow, and React
+Host events:
 
-For static HTML or Webflow, paste the standard script immediately before `</body>`. In Webflow this goes in Project/Page Settings → Custom Code → Before `</body>`.
+- `kagen-chat:ready`
+- `kagen-chat:open`
+- `kagen-chat:close`
+- `kagen-chat:error`
+- `kagen-chat:message-submitted`
+- `kagen-chat:response-received`
+- `kagen-chat:api-error`
+- `kagen-chat:link-clicked`
 
-React component:
+Analytics events contain categories/metadata, not the user's message content.
 
-```tsx
-import { useEffect } from "react";
+## User interface decisions
 
-export function KagenChatWidget() {
-  useEffect(() => {
-    if (document.querySelector("[data-kagen-widget-loader]")) return;
-    const script = document.createElement("script");
-    script.src = "https://YOUR-VERCEL-DOMAIN.vercel.app/kagen-chat-widget.js";
-    script.defer = true;
-    script.dataset.kagenWidgetLoader = "true";
-    script.dataset.primaryColor = "#0063CE";
-    document.body.appendChild(script);
-    return () => {
-      window.KagenChat?.destroy();
-      script.remove();
-    };
-  }, []);
-  return null;
-}
-```
+- Primary color: `#0063ce`
+- Assistant avatar and assistant content: left side
+- User avatar and user bubble: right side
+- Text inside both assistant and user bubbles: left-aligned
+- Cards, sources, chips, and input text: left-aligned
+- Horizontal overflow is hidden inside the conversation
+- The widget has one visually apparent header X and a launcher close state
 
-The script handles duplicate inclusion, late or dynamic loading, and lazy iframe initialization. For long-lived SPA layouts, mount it once at the application shell.
+## Source map
 
-### Content Security Policy
+Read only the relevant files after this README:
 
-Replace the placeholder with the deployed widget origin and merge these sources into the host’s existing policy:
+| Concern                       | Primary files                                     |
+| ----------------------------- | ------------------------------------------------- |
+| Chat API orchestration        | `src/app/api/chat/route.ts`                       |
+| Retrieval and ranking         | `src/lib/search-retriever.ts`                     |
+| Document index and chunking   | `src/lib/search-index.ts`                         |
+| Recursive ACF extraction      | `src/lib/acf-extractor.ts`                        |
+| HTML/entity normalization     | `src/lib/html-utils.ts`                           |
+| WordPress fetching/pagination | `src/lib/kagen-api.ts`                            |
+| Environment validation        | `src/lib/env.ts`                                  |
+| LLM prompt/provider           | `src/lib/llm/openai-provider.ts`                  |
+| LLM interface                 | `src/lib/llm/provider.ts`, `src/lib/llm/types.ts` |
+| Response schema               | `src/lib/llm/schemas.ts`                          |
+| Chat state/UI                 | `src/components/chat/chat-window.tsx`             |
+| Message rendering             | `src/components/chat/chat-message.tsx`            |
+| Cards                         | `src/components/chat/result-card.tsx`             |
+| Embed server page             | `src/app/embed/page.tsx`                          |
+| Widget configurator           | `src/app/widget-preview/page.tsx`                 |
+| Widget loader                 | `public/kagen-chat-widget.js`                     |
+| Global/widget styling         | `src/app/globals.css`                             |
+| Retrieval/unit tests          | `src/lib/core.test.ts`                            |
+| Loader/jsdom tests            | `src/lib/widget-loader.test.ts`                   |
+
+Legacy helpers such as `content-retriever.ts`, `content-normalizer.ts`, and
+`relevance-score.ts` support older/API-specific flows and tests. The primary
+chat endpoint uses `search-retriever.ts`.
+
+## Security model
+
+- Server-side API keys only
+- Exact-origin CORS; no wildcard API CORS response
+- Input, history, output, URLs, and array sizes validated with Zod
+- WordPress and AI calls have timeouts
+- Model context is treated as untrusted data
+- Model output cannot determine final cards/source URLs
+- Raw WordPress HTML is converted to text before search or display
+- Embed iframe is sandboxed
+- Widget message handling validates namespace, type, origin, and source
+- Chat responses use `Cache-Control: no-store`
+- Basic in-memory per-instance rate limiting is enabled
+
+For distributed production rate limiting, replace the in-memory limiter with a
+shared service such as Vercel KV/Upstash without changing the API contract.
+
+## Deployment
+
+Repository:
 
 ```text
-script-src 'self' https://YOUR-VERCEL-DOMAIN.vercel.app;
-style-src 'self' 'unsafe-inline';
-frame-src https://YOUR-VERCEL-DOMAIN.vercel.app;
-connect-src 'self' https://YOUR-VERCEL-DOMAIN.vercel.app;
-img-src 'self' data: https://YOUR-VERCEL-DOMAIN.vercel.app https://kagen.ai;
+https://github.com/gajendrayaduwanshii/kagenAiChatbot.git
 ```
 
-The loader currently creates a small scoped inline stylesheet, so a nonce-based host policy must either permit that style or serve an equivalent approved style policy. `connect-src` is required by the iframe application’s own CSP only when the API lives on a separate origin. Add WordPress image hosts to `img-src` when cards use remote featured images.
+Vercel steps:
 
-### Local and mixed-content behavior
-
-Use `http://localhost:3000/kagen-chat-widget.js` for local testing. An HTTPS host page will block an HTTP widget/API as mixed content. Vercel also cannot reach WordPress on the developer’s `localhost`; production must use a publicly accessible HTTPS WordPress API.
-
-Cross-origin chat requests require the exact host origin in `WIDGET_ALLOWED_ORIGINS`. The application never responds with wildcard CORS.
-
-## Vercel production deployment
-
-1. Push the repository to GitHub.
-2. Import it into Vercel.
-3. Add the environment variables below.
-4. Set `KAGEN_API_BASE_URL` to the public production WordPress endpoint.
-5. Configure the AI provider key, model, and compatible base URL.
-6. Add every widget host to `WIDGET_ALLOWED_ORIGINS`.
-7. Deploy.
-8. Verify `/api/health`.
-9. Test `/widget-preview`.
-10. Copy the generated script into the target website.
-
-Example configuration (never commit real secrets):
-
-```env
-KAGEN_API_BASE_URL=https://kagen.ai/wp-json/kagen/v1
-KAGEN_PUBLIC_SITE_URL=https://kagen.ai
-AI_PROVIDER=nvidia
-AI_API_KEY=replace-with-secret
-AI_MODEL=meta/llama-3.1-8b-instruct
-AI_BASE_URL=https://integrate.api.nvidia.com/v1
-ALLOWED_ORIGINS=https://kagen.ai,https://www.kagen.ai
-WIDGET_ALLOWED_ORIGINS=https://kagen.ai,https://www.kagen.ai
-NEXT_PUBLIC_APP_NAME=Kagen AI Assistant
-NEXT_PUBLIC_CHAT_API_URL=/api/chat
-```
-
-`LLM_PROVIDER`, `LLM_API_KEY`, and `LLM_MODEL` remain supported as compatibility aliases. No local filesystem persistence or custom Node server is used; the API routes are serverless-compatible and the loader is served statically from `public`.
+1. Import the GitHub repository.
+2. Add every required environment variable.
+3. Use the public HTTPS Kagen WordPress API.
+4. Keep `AI_API_KEY` in server-side environment settings.
+5. Add every real host to both allowed-origin lists as appropriate.
+6. Deploy using the standard `npm run build`.
+7. Verify `/api/health`.
+8. Test a title, mid-article sentence, paraphrase, unknown query, and widget
+   close/open behavior.
+9. Copy the generated script from `/widget-preview` into the target website.
 
 ## Troubleshooting
 
-- **Content unavailable:** verify `KAGEN_API_BASE_URL`, route availability, TLS, and that the Next.js host can reach WordPress.
-- **Verified answer unavailable:** check `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL`, account access, and server logs.
-- **Origin rejected:** add the exact scheme/host/port to `ALLOWED_ORIGINS`.
-- **Localhost works but Vercel fails:** Vercel cannot access the WordPress server on your computer; use a public HTTPS endpoint.
-- **Stale content:** public content revalidates after five minutes; restart development for immediate local checks.
+### Widget does not appear
 
-# kagenAiChatbot
+- Confirm the chatbot server/domain is reachable.
+- Open the script URL directly and check for HTTP 200.
+- Check browser mixed-content and Content Security Policy errors.
+- Add a query version such as `?v=2` to bypass an old cached loader.
+
+### Header X does not close
+
+- Hard-refresh the host page.
+- Confirm it is serving the latest `kagen-chat-widget.js`.
+- Verify the parent-controlled `.kagen-chat-close-hit-area` exists.
+- Confirm the host has not placed another element above the widget z-index.
+
+### Content exists but is not found
+
+1. Call `/api/debug/retrieval` in development.
+2. Confirm `indexedDocuments` matches the WordPress inventory.
+3. Inspect `selectedPassages` and `matchedFields`.
+4. Confirm the text exists in `content.rendered` or ACF in the API response.
+5. Add a regression fixture before changing thresholds.
+6. Do not solve the issue by hardcoding production answers.
+
+### LLM response unavailable
+
+- Verify `AI_API_KEY`, `AI_MODEL`, and `AI_BASE_URL`.
+- Confirm model access in the NVIDIA account.
+- Confirm the provider returns valid JSON.
+
+### Local works but Vercel fails
+
+- Vercel cannot access local WordPress.
+- Use `https://kagen.ai/wp-json/kagen/v1`.
+- Verify allowed origins and TLS.
+
+### Stale WordPress content
+
+Content and the derived index refresh every five minutes. Restart the local
+development process for an immediate clean local check.
+
+## AI/developer change checklist
+
+Before changing code:
+
+1. Read this README.
+2. Identify the focused files from the source map.
+3. Preserve API and widget contracts.
+4. Preserve strict WordPress grounding.
+5. Check existing dirty worktree changes before editing.
+
+Before completing:
+
+1. Add/update a regression test for behavior changes.
+2. Run format, tests, lint, and typecheck.
+3. Run the production build.
+4. For retrieval changes, test against the real local WordPress corpus.
+5. For widget changes, test launcher and header close behavior.
+6. Update this README if architecture, configuration, or behavior changed.
