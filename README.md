@@ -27,6 +27,16 @@ Last verified: **24 July 2026**
 - The widget supports Next.js preview, WordPress, static HTML, and other sites.
 - Latest quality gate: 38 tests, ESLint, TypeScript, and production build pass.
 
+### Current Vercel deployment
+
+- Production app: `https://kagen-ai-chatbot.vercel.app`
+- Health, widget loader, and widget preview return HTTP 200.
+- The production chat currently returns `CONTENT_UNAVAILABLE` because
+  `https://kagen.ai/wp-json/kagen/v1/content` returns WordPress 404 and the live
+  REST index does not list the `kagen/v1` namespace.
+- Activate/deploy the Kagen REST API route on live WordPress before treating
+  production chat as operational. Do not replace it with hardcoded content.
+
 ## Non-negotiable product rules
 
 Keep these invariants unless the owner explicitly requests a change:
