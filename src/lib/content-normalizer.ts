@@ -53,10 +53,34 @@ export function flattenAcf(value: JsonValue | undefined): {
 const rendered = (value: WordPressItem["title"] | WordPressItem["content"]) =>
   typeof value === "string" ? value : (value?.rendered ?? "");
 
+function preferredAcfSummary(value: JsonValue | undefined): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const record = value as Record<string, JsonValue>;
+  const preferredKeys = [
+    "hero_description",
+    "short_description",
+    "intro_description",
+    "overview",
+    "home_products_heading",
+    "home_capabilities_heading",
+    "description",
+  ];
+  for (const key of preferredKeys) {
+    const candidate = record[key];
+    if (typeof candidate === "string") {
+      const text = htmlToText(candidate);
+      if (text.length >= 40) return text.slice(0, 500);
+    }
+  }
+  return "";
+}
+
 export function normalizeContent(item: WordPressItem): NormalizedContent {
   const acf = flattenAcf(item.acf);
   const title = htmlToText(rendered(item.title)) || "Untitled";
-  const excerpt = htmlToText(rendered(item.excerpt)).slice(0, 500);
+  const excerpt =
+    htmlToText(rendered(item.excerpt)).slice(0, 500) ||
+    preferredAcfSummary(item.acf);
   const body = htmlToText(rendered(item.content));
   const featured =
     typeof item.featured_image === "string"

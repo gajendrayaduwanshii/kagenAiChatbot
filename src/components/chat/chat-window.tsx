@@ -26,6 +26,7 @@ interface ChatWindowProps {
   primaryColor?: string;
   apiUrl?: string;
   logoUrl?: string;
+  parentOrigin?: string;
 }
 const emit = (name: string, detail: Record<string, unknown> = {}) => {
   window.dispatchEvent(new CustomEvent(`kagen-chat:${name}`, { detail }));
@@ -38,6 +39,7 @@ export function ChatWindow({
   primaryColor,
   apiUrl,
   logoUrl,
+  parentOrigin,
 }: ChatWindowProps) {
   const welcome: ChatMessage = {
     id: "welcome",
@@ -52,16 +54,22 @@ export function ChatWindow({
     (type: string, payload?: Record<string, unknown>) => {
       if (!embedded) return;
       try {
-        const parentOrigin = new URL(document.referrer).origin;
+        const parsedReferrerOrigin = document.referrer
+          ? new URL(document.referrer).origin
+          : undefined;
+        const referrerOrigin =
+          parsedReferrerOrigin === "null" ? "*" : parsedReferrerOrigin;
+        const trustedParentOrigin = referrerOrigin || parentOrigin;
+        if (!trustedParentOrigin || window.parent === window) return;
         window.parent.postMessage(
           { namespace: "kagen-chat", type, ...(payload ? { payload } : {}) },
-          parentOrigin,
+          trustedParentOrigin,
         );
       } catch {
         /* no trusted parent referrer */
       }
     },
-    [embedded],
+    [embedded, parentOrigin],
   );
   useEffect(() => {
     try {
@@ -202,6 +210,7 @@ export function ChatWindow({
         </div>
         <div className="chat-actions">
           <button
+            type="button"
             onClick={clear}
             aria-label="Clear conversation"
             title="Clear conversation"
@@ -211,6 +220,7 @@ export function ChatWindow({
           </button>
           {embedded && (
             <button
+              type="button"
               onClick={closeEmbed}
               aria-label="Close chat"
               title="Close chat"

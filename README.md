@@ -8,7 +8,7 @@ A production-oriented Next.js website assistant grounded in content from Kagen's
 - `POST /api/chat` validates requests, enforces CORS/rate limits, detects intent, retrieves only relevant WordPress content, normalizes/ranks it, and invokes a provider-independent LLM layer.
 - WordPress responses—including arbitrary nested ACF values—are converted into bounded plain text. Raw HTML is never rendered.
 - OpenAI is isolated behind `LLMProvider`. Model output is Zod-validated and all card/source URLs are checked against retrieved URLs.
-- If the LLM is unavailable or misconfigured, the API produces a useful grounded fallback from retrieved WordPress content.
+- Strict mode returns an explicit error if WordPress content is unavailable or the LLM response cannot be validated; it never substitutes a generic fallback answer.
 - Public WordPress fetches revalidate every five minutes; chat responses use `no-store`.
 
 ## Local setup
@@ -29,6 +29,7 @@ Open `http://localhost:3000`. The widget preview is at `/widget-preview`; health
 | -------------------------- | ---------------------------------------- |
 | `NEXT_PUBLIC_APP_NAME`     | Public UI name                           |
 | `KAGEN_API_BASE_URL`       | Server-only WordPress API base           |
+| `KAGEN_PUBLIC_SITE_URL`    | Public base for card and source URLs     |
 | `AI_PROVIDER`              | Provider selector; `nvidia` or `openai`  |
 | `AI_API_KEY`               | Server-only provider secret              |
 | `AI_MODEL`                 | Provider model ID                        |
@@ -44,19 +45,21 @@ For local WordPress use:
 
 ```env
 KAGEN_API_BASE_URL=http://localhost/wp-kagen/wp-json/kagen/v1
+KAGEN_PUBLIC_SITE_URL=http://localhost/wp-kagen
 ```
 
 For production:
 
 ```env
 KAGEN_API_BASE_URL=https://kagen.ai/wp-json/kagen/v1
+KAGEN_PUBLIC_SITE_URL=https://kagen.ai
 ```
 
 The configured WordPress routes must be reachable from the Next.js server. A WordPress instance on `localhost` cannot be reached by a Vercel deployment; Vercel testing requires a publicly accessible HTTPS endpoint.
 
 ### LLM
 
-For NVIDIA NIM, set `AI_PROVIDER=nvidia`, `AI_BASE_URL=https://integrate.api.nvidia.com/v1`, `AI_API_KEY`, and a model such as `meta/llama-3.1-8b-instruct` in `AI_MODEL`. OpenAI-compatible providers use the same isolated adapter. With no key, retrieval and fallback cards still work.
+For NVIDIA NIM, set `AI_PROVIDER=nvidia`, `AI_BASE_URL=https://integrate.api.nvidia.com/v1`, `AI_API_KEY`, and a model such as `meta/llama-3.1-8b-instruct` in `AI_MODEL`. OpenAI-compatible providers use the same isolated adapter. A valid key is required; strict mode does not generate fallback answers.
 
 ## Commands
 
@@ -241,6 +244,7 @@ Example configuration (never commit real secrets):
 
 ```env
 KAGEN_API_BASE_URL=https://kagen.ai/wp-json/kagen/v1
+KAGEN_PUBLIC_SITE_URL=https://kagen.ai
 AI_PROVIDER=nvidia
 AI_API_KEY=replace-with-secret
 AI_MODEL=meta/llama-3.1-8b-instruct
@@ -256,7 +260,7 @@ NEXT_PUBLIC_CHAT_API_URL=/api/chat
 ## Troubleshooting
 
 - **Content unavailable:** verify `KAGEN_API_BASE_URL`, route availability, TLS, and that the Next.js host can reach WordPress.
-- **Fallback answers instead of generated prose:** check `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL`, account access, and server logs.
+- **Verified answer unavailable:** check `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL`, account access, and server logs.
 - **Origin rejected:** add the exact scheme/host/port to `ALLOWED_ORIGINS`.
 - **Localhost works but Vercel fails:** Vercel cannot access the WordPress server on your computer; use a public HTTPS endpoint.
 - **Stale content:** public content revalidates after five minutes; restart development for immediate local checks.

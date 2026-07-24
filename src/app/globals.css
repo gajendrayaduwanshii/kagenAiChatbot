@@ -119,6 +119,7 @@ a {
   box-shadow: 0 22px 60px rgba(28, 31, 53, 0.1);
   display: flex;
   flex-direction: column;
+  text-align: left;
   overflow: hidden;
 }
 .chat-header {
@@ -160,11 +161,14 @@ a {
 .conversation {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px 28px;
   scrollbar-width: thin;
 }
 .message-row {
   display: flex;
+  width: 100%;
+  min-width: 0;
   gap: 11px;
   margin-bottom: 24px;
   align-items: flex-start;
@@ -187,6 +191,7 @@ a {
   color: var(--brand);
 }
 .message-wrap {
+  min-width: 0;
   max-width: 88%;
 }
 .user .message-wrap {
@@ -195,11 +200,14 @@ a {
   align-items: flex-end;
 }
 .bubble {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 12px 15px;
   border-radius: 5px 16px 16px 16px;
   background: var(--soft);
   line-height: 1.6;
   font-size: 15px;
+  text-align: left;
 }
 .user .bubble {
   background: var(--brand);
@@ -251,6 +259,8 @@ a {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: flex-start;
+  text-align: left;
 }
 .starters > div {
   width: 100%;
@@ -278,6 +288,7 @@ a {
 }
 .card-grid {
   display: grid;
+  min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-top: 13px;
@@ -291,6 +302,7 @@ a {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  text-align: left;
 }
 .result-card > img {
   width: 100%;
@@ -352,6 +364,7 @@ a {
   margin-top: 12px;
   font-size: 12px;
   color: var(--muted);
+  text-align: left;
 }
 .sources summary {
   cursor: pointer;
@@ -373,9 +386,13 @@ a {
   display: flex;
   gap: 7px;
   flex-wrap: wrap;
+  justify-content: flex-start;
   margin-top: 12px;
+  text-align: left;
 }
 .input-area {
+  width: 100%;
+  min-width: 0;
   border-top: 1px solid var(--line);
   padding: 15px 18px;
   display: flex;
@@ -384,6 +401,7 @@ a {
   background: white;
 }
 .input-area textarea {
+  min-width: 0;
   border: 1px solid #d9dce6;
   border-radius: 12px;
   padding: 11px 13px;
@@ -392,6 +410,7 @@ a {
   min-height: 44px;
   max-height: 120px;
   outline: none;
+  text-align: left;
 }
 .input-area textarea:focus {
   border-color: var(--brand);
@@ -842,18 +861,6 @@ summary:focus-visible {
   width: 100%;
   height: 100%;
   border: 0;
-}
-.stage-widget > button {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  border: 0;
-  background: #ffffff18;
-  color: white;
-  border-radius: 8px;
-  padding: 5px;
-  display: grid;
-  cursor: pointer;
 }
 .mobile-stage .stage-widget {
   position: absolute;

@@ -1,16 +1,26 @@
 "use client";
 
-import { Check, Copy, MessageCircle, X } from "lucide-react";
+import { Check, Copy, MessageCircle } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 type Position = "bottom-right" | "bottom-left";
-const deployment =
-  typeof window === "undefined"
-    ? "http://localhost:3000"
-    : window.location.origin;
+const subscribeToOrigin = () => () => {};
+const getOrigin = () => window.location.origin;
+const getServerOrigin = () => "";
 
 export default function WidgetPreview() {
+  const deployment = useSyncExternalStore(
+    subscribeToOrigin,
+    getOrigin,
+    getServerOrigin,
+  );
   const [color, setColor] = useState("#0063ce");
   const [position, setPosition] = useState<Position>("bottom-right");
   const [width, setWidth] = useState(400);
@@ -19,6 +29,21 @@ export default function WidgetPreview() {
   const [mobile, setMobile] = useState(false);
   const [open, setOpen] = useState(openDefault);
   const [copied, setCopied] = useState(false);
+  const previewFrame = useRef<HTMLIFrameElement>(null);
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.origin === window.location.origin &&
+        event.source === previewFrame.current?.contentWindow &&
+        event.data?.namespace === "kagen-chat" &&
+        event.data?.type === "KAGEN_CHAT_CLOSE"
+      ) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
   const query = useMemo(
     () =>
       new URLSearchParams({
@@ -26,13 +51,19 @@ export default function WidgetPreview() {
         welcomeMessage: "Hi! How can I help you explore Kagen?",
         primaryColor: color,
         position,
-        apiUrl: `${deployment}/api/chat`,
+        ...(deployment
+          ? {
+              apiUrl: `${deployment}/api/chat`,
+              parentOrigin: deployment,
+            }
+          : {}),
       }).toString(),
-    [color, position],
+    [color, deployment, position],
   );
+  const snippetOrigin = deployment || "https://YOUR-KAGEN-CHAT-DOMAIN.example";
   const snippet = `<script
-  src="${deployment}/kagen-chat-widget.js"
-  data-api-url="${deployment}/api/chat"
+  src="${snippetOrigin}/kagen-chat-widget.js"
+  data-api-url="${snippetOrigin}/api/chat"
   data-title="Ask Kagen AI"
   data-welcome-message="Hi! How can I help you explore Kagen?"
   data-primary-color="${color}"
@@ -146,7 +177,7 @@ export default function WidgetPreview() {
               organizations.
             </p>
           </div>
-          {open && (
+          {open && deployment && (
             <div
               className={`stage-widget ${position}`}
               style={{
@@ -154,10 +185,11 @@ export default function WidgetPreview() {
                 height: mobile ? "100%" : Math.min(height, 720),
               }}
             >
-              <iframe src={`/embed?${query}`} title="Kagen widget preview" />
-              <button onClick={() => setOpen(false)} aria-label="Close preview">
-                <X />
-              </button>
+              <iframe
+                ref={previewFrame}
+                src={`/embed?${query}`}
+                title="Kagen widget preview"
+              />
             </div>
           )}
           {!open && (

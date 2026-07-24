@@ -91,7 +91,7 @@
     mobileFullscreen: bool(data.mobileFullscreen, true),
   };
 
-  var root, launcher, panel, frame, unread, style;
+  var root, launcher, panel, frame, closeHitArea, unread, style;
   var open = false;
   var ready = false;
   var previousOverflow = "";
@@ -131,6 +131,7 @@
       position: config.position,
       buttonLabel: config.buttonLabel,
       apiUrl: config.apiUrl,
+      parentOrigin: window.location.origin,
     });
     if (config.logoUrl) params.set("logoUrl", config.logoUrl);
     frame.src = widgetOrigin + "/embed?" + params.toString();
@@ -259,7 +260,7 @@
       config.height +
       "px;max-width:calc(100vw - 24px);max-height:calc(100vh - 104px);overflow:hidden;border-radius:18px;background:#fff;box-shadow:0 24px 80px rgba(2,6,23,.3);transform-origin:bottom " +
       (config.position === "bottom-left" ? "left" : "right") +
-      ";animation:kagen-chat-in .2s ease-out}.kagen-chat-panel[hidden]{display:none}.kagen-chat-frame{display:block;width:100%;height:100%;border:0}.kagen-chat-unread{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border:2px solid #fff;border-radius:999px;background:#ef4444;color:#fff;font:700 11px/16px sans-serif;text-align:center}.kagen-chat-unread[hidden]{display:none}@keyframes kagen-chat-in{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}" +
+      ";animation:kagen-chat-in .2s ease-out}.kagen-chat-panel[hidden]{display:none}.kagen-chat-frame{display:block;width:100%;height:100%;border:0}.kagen-chat-close-hit-area{position:absolute;z-index:2;top:0;right:0;width:52px;height:58px;padding:0;border:0;background:transparent;cursor:pointer}.kagen-chat-close-hit-area:focus-visible{outline:3px solid #fff;outline-offset:-6px;border-radius:10px}.kagen-chat-unread{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border:2px solid #fff;border-radius:999px;background:#ef4444;color:#fff;font:700 11px/16px sans-serif;text-align:center}.kagen-chat-unread[hidden]{display:none}@keyframes kagen-chat-in{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}" +
       "@media(max-width:640px){.kagen-chat-label{display:none}.kagen-chat-launcher{width:56px;padding:0;justify-content:center}" +
       (config.mobileFullscreen
         ? ".kagen-chat-panel{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;border-radius:0}"
@@ -271,6 +272,13 @@
     panel = document.createElement("div");
     panel.className = "kagen-chat-panel";
     panel.hidden = true;
+    closeHitArea = document.createElement("button");
+    closeHitArea.type = "button";
+    closeHitArea.className = "kagen-chat-close-hit-area";
+    closeHitArea.setAttribute("aria-label", "Close chat");
+    closeHitArea.title = "Close chat";
+    closeHitArea.addEventListener("click", closeWidget);
+    panel.appendChild(closeHitArea);
     launcher = document.createElement("button");
     launcher.type = "button";
     launcher.className = "kagen-chat-launcher";

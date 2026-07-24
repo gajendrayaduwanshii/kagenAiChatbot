@@ -19,6 +19,8 @@ export const assistantResponseSchema = z.object({
     )
     .max(6)
     .default([]),
+  confidence: z.enum(["low", "medium", "high"]).optional(),
+  insufficientContext: z.boolean().optional(),
 });
 export type AssistantResponse = z.infer<typeof assistantResponseSchema>;
 

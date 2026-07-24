@@ -35,11 +35,26 @@ export function detectIntent(query: string): Intent {
       "prism",
       "cognitive document intelligence",
       "document intelligence",
+      "ai voice",
+      "voice agent",
+      "voice automation",
+      "kagen voice",
+      "kagen add",
+      "agentic-driven delivery",
+      "agentic driven delivery",
+      "adaptive compatibility",
     ])
   )
     return "product_detail";
   if (
-    includes(q, ["company", "who is kagen"]) ||
+    includes(q, [
+      "company",
+      "who is kagen",
+      "kagen ai",
+      "kagen eye",
+      "kaga ai",
+      "kaga eye",
+    ]) ||
     /\babout (kagen|the company)\b/.test(q)
   )
     return "about";

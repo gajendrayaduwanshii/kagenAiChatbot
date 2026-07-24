@@ -35,9 +35,11 @@ describe("public widget loader", () => {
     expect(dom.window.document.querySelector("iframe")).toBeNull();
     api.open();
     expect(api.isOpen()).toBe(true);
-    expect(dom.window.document.querySelector("iframe")?.src).toContain(
-      "https://widget.example/embed?",
+    const iframeUrl = new URL(
+      dom.window.document.querySelector("iframe")?.src ?? "",
     );
+    expect(iframeUrl.href).toContain("https://widget.example/embed?");
+    expect(iframeUrl.searchParams.get("parentOrigin")).toBe("https://kagen.ai");
     api.close();
     expect(api.isOpen()).toBe(false);
     dom.window.eval(source);
@@ -70,5 +72,76 @@ describe("public widget loader", () => {
     expect(dom.window.document.documentElement.style.overflow).toBe("hidden");
     api.close();
     expect(dom.window.document.documentElement.style.overflow).toBe("");
+  });
+  it("closes when the embedded chat sends its close message", () => {
+    const dom = new JSDOM(
+      '<!doctype html><html><head></head><body><script src="https://widget.example/kagen-chat-widget.js"></script></body></html>',
+      { url: "https://kagen.ai/page", runScripts: "outside-only" },
+    );
+    Object.defineProperty(dom.window, "matchMedia", {
+      value: () => ({
+        matches: false,
+        addEventListener() {},
+        removeEventListener() {},
+      }),
+    });
+    dom.window.eval(readFileSync("public/kagen-chat-widget.js", "utf8"));
+    dom.window.document.dispatchEvent(new dom.window.Event("DOMContentLoaded"));
+    const api = (
+      dom.window as unknown as {
+        KagenChat: { open(): void; isOpen(): boolean };
+      }
+    ).KagenChat;
+    api.open();
+    const iframe = dom.window.document.querySelector("iframe");
+    expect(iframe).not.toBeNull();
+    dom.window.dispatchEvent(
+      new dom.window.MessageEvent("message", {
+        origin: "https://widget.example",
+        source: iframe?.contentWindow,
+        data: {
+          namespace: "kagen-chat",
+          type: "KAGEN_CHAT_CLOSE",
+        },
+      }),
+    );
+    expect(api.isOpen()).toBe(false);
+  });
+  it("passes an opaque parent origin when a local HTML file hosts the widget", () => {
+    const dom = new JSDOM(
+      '<!doctype html><html><head></head><body><script src="http://localhost:3000/kagen-chat-widget.js"></script></body></html>',
+      {
+        url: "file:///tmp/kagen-widget-test.html",
+        runScripts: "outside-only",
+      },
+    );
+    Object.defineProperty(dom.window, "matchMedia", {
+      value: () => ({
+        matches: false,
+        addEventListener() {},
+        removeEventListener() {},
+      }),
+    });
+    dom.window.eval(readFileSync("public/kagen-chat-widget.js", "utf8"));
+    dom.window.document.dispatchEvent(new dom.window.Event("DOMContentLoaded"));
+    const api = (dom.window as unknown as { KagenChat: { open(): void } })
+      .KagenChat;
+    api.open();
+    const iframeUrl = new URL(
+      dom.window.document.querySelector("iframe")?.src ?? "",
+    );
+    expect(iframeUrl.searchParams.get("parentOrigin")).toBe("null");
+    const closeHitArea = dom.window.document.querySelector<HTMLButtonElement>(
+      ".kagen-chat-close-hit-area",
+    );
+    expect(closeHitArea).not.toBeNull();
+    closeHitArea?.click();
+    expect(
+      (
+        dom.window as unknown as {
+          KagenChat: { isOpen(): boolean };
+        }
+      ).KagenChat.isOpen(),
+    ).toBe(false);
   });
 });

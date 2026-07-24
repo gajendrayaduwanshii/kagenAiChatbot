@@ -5,6 +5,7 @@ const serverEnvSchema = z.object({
     .string()
     .url()
     .default("http://localhost/wp-kagen/wp-json/kagen/v1"),
+  KAGEN_PUBLIC_SITE_URL: z.string().url().default("http://localhost/wp-kagen"),
   AI_PROVIDER: z.string().optional(),
   AI_API_KEY: z.string().optional(),
   AI_MODEL: z.string().optional(),
