@@ -16,6 +16,14 @@ export interface PreparedQuery {
   fallbackAnswer: string;
 }
 export interface LLMProvider {
-  prepareMultilingualQuery(message: string): Promise<PreparedQuery>;
+  prepareMultilingualQuery(
+    message: string,
+    responseLanguage: string,
+  ): Promise<PreparedQuery>;
+  generateConversationalResponse(
+    message: string,
+    responseLanguage: string,
+    history: HistoryMessage[],
+  ): Promise<AssistantResponse>;
   generateStructuredResponse(input: LLMInput): Promise<AssistantResponse>;
 }

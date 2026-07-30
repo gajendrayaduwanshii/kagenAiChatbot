@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { corsHeaders } from "@/lib/cors";
 import { detectIntent } from "@/lib/intent-detector";
+import { detectLanguageStyle } from "@/lib/language-style";
 import { fetchKagen } from "@/lib/kagen-api";
 import { getLLMProvider } from "@/lib/llm";
 import { assistantResponseSchema } from "@/lib/llm/schemas";
@@ -92,10 +93,41 @@ export async function POST(request: NextRequest) {
       parsed.error.issues[0]?.message ?? "Invalid request.",
       cors.headers,
     );
+  const directIntent = detectIntent(parsed.data.message);
+  const languageStyle = detectLanguageStyle(parsed.data.message);
+  if (directIntent === "greeting" || directIntent === "help") {
+    try {
+      const response = await getLLMProvider().generateConversationalResponse(
+        parsed.data.message,
+        languageStyle,
+        parsed.data.history,
+      );
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            ...response,
+            cards: [],
+            sources: [],
+            insufficientContext: false,
+          },
+        },
+        { headers: { ...cors.headers, "Cache-Control": "no-store" } },
+      );
+    } catch {
+      return error(
+        503,
+        "AI_RESPONSE_UNAVAILABLE",
+        "The conversational response could not be generated. Please try again.",
+        cors.headers,
+      );
+    }
+  }
   let preparedQuery;
   try {
     preparedQuery = await getLLMProvider().prepareMultilingualQuery(
       parsed.data.message,
+      languageStyle,
     );
   } catch {
     return error(
@@ -106,7 +138,72 @@ export async function POST(request: NextRequest) {
     );
   }
   const effectiveMessage = preparedQuery.englishQuery;
-  const intent = detectIntent(effectiveMessage);
+  const intent =
+    directIntent === "general" ? detectIntent(effectiveMessage) : directIntent;
+  if (intent === "products") {
+    try {
+      const products = (await fetchKagen("/content?type=product&per_page=100"))
+        .map(buildSearchDocument)
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .slice(0, 6);
+      if (!products.length)
+        throw new Error("Product collection is unavailable");
+      const productContext: NormalizedContent[] = products.map((document) => ({
+        id: document.id,
+        type: document.type,
+        slug: document.slug,
+        title: document.title,
+        excerpt: document.descriptions[0] ?? "",
+        plainText: document.textSegments.join("\n\n"),
+        url: document.url,
+        image: document.image,
+        modified: document.modified,
+        acfText: "",
+        extractedUrls: [],
+      }));
+      const generated = await getLLMProvider().generateStructuredResponse({
+        message: effectiveMessage,
+        responseLanguage: languageStyle,
+        fallbackAnswer: preparedQuery.fallbackAnswer,
+        history: parsed.data.history,
+        context: productContext,
+      });
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            ...generated,
+            cards: products.map((document) => ({
+              type: "product",
+              title: document.title,
+              description: (
+                document.descriptions[0] ??
+                document.textSegments[0] ??
+                document.title
+              ).slice(0, 500),
+              url: document.url,
+              image: document.image,
+              badge: "product",
+            })),
+            sources: products.map((document) => ({
+              title: document.title,
+              url: document.url,
+            })),
+            confidence: "high",
+            insufficientContext: false,
+          },
+        },
+        { headers: { ...cors.headers, "Cache-Control": "no-store" } },
+      );
+    } catch {
+      return error(
+        503,
+        "CONTENT_UNAVAILABLE",
+        "Kagen’s product collection is temporarily unavailable.",
+        cors.headers,
+      );
+    }
+  }
   // Contact is a deterministic navigation intent. Fetch only the published
   // Contact Us page and return one API-backed card; never run broad retrieval
   // that can mix in unrelated posts, case studies, or privacy content.
@@ -268,8 +365,11 @@ export async function POST(request: NextRequest) {
       cards: selectedMatches.map(({ document, selectedPassages }) => ({
         type: cardType(document.type),
         title: document.title,
-        description:
-          document.descriptions[0] ?? selectedPassages[0] ?? document.title,
+        description: (
+          document.descriptions[0] ??
+          selectedPassages[0] ??
+          document.title
+        ).slice(0, 500),
         url: document.url,
         image: document.image,
         badge: document.type,
@@ -281,8 +381,17 @@ export async function POST(request: NextRequest) {
       confidence: topScore >= 100 ? "high" : "medium",
       insufficientContext: false,
     };
+    const finalResponse = assistantResponseSchema.safeParse(response);
+    if (!finalResponse.success) {
+      return error(
+        503,
+        "INVALID_AI_RESPONSE",
+        "The generated answer could not be safely validated. Please try again.",
+        cors.headers,
+      );
+    }
     return NextResponse.json(
-      { success: true, data: response },
+      { success: true, data: finalResponse.data },
       { headers: { ...cors.headers, "Cache-Control": "no-store" } },
     );
   } catch {

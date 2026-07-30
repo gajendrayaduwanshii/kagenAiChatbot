@@ -73,7 +73,7 @@
   }
 
   var config = {
-    apiUrl: safeUrl(data.apiUrl, widgetOrigin + "/api/chat"),
+    apiUrl: safeUrl(data.apiUrl, widgetOrigin + "/api/ag-ui"),
     title: safeText(data.title, "Ask Kagen AI", 60),
     welcomeMessage: safeText(
       data.welcomeMessage,

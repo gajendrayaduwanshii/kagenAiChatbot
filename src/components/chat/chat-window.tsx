@@ -1,8 +1,10 @@
 "use client";
+import { HttpAgent, type AgentSubscriber } from "@ag-ui/client";
+import type { Message as AgUiMessage } from "@ag-ui/core";
 import { RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AssistantResponse } from "@/lib/llm/schemas";
-import type { ChatMessage, HistoryMessage } from "@/types/chat";
+import { assistantResponseSchema } from "@/lib/llm/schemas";
+import type { ChatMessage } from "@/types/chat";
 import { ChatInput } from "./chat-input";
 import { ChatMessage as Message } from "./chat-message";
 import { TypingIndicator } from "./typing-indicator";
@@ -77,7 +79,10 @@ export function ChatWindow({
         sessionStorage.getItem("kagen-chat:session:v1") || crypto.randomUUID();
       sessionStorage.setItem("kagen-chat:session:v1", sessionId.current);
       const saved = sessionStorage.getItem(storageKey);
-      if (saved) setMessages(JSON.parse(saved));
+      if (saved) {
+        const restored = JSON.parse(saved) as ChatMessage[];
+        queueMicrotask(() => setMessages(restored));
+      }
     } catch {
       sessionId.current = crypto.randomUUID();
     }
@@ -99,13 +104,6 @@ export function ChatWindow({
         role: "user",
         content: text,
       };
-      const history: HistoryMessage[] = messages
-        .filter((m) => m.id !== "welcome")
-        .slice(-10)
-        .map((m) => ({
-          role: m.role,
-          content: m.response?.answer ?? m.content,
-        }));
       setMessages((current) => [...current, user]);
       setLoading(true);
       emit("message-submitted", {
@@ -113,63 +111,93 @@ export function ChatWindow({
           text.length < 80 ? "short" : text.length < 300 ? "medium" : "long",
       });
       const startedAt = performance.now();
+      let protocolErrorReceived = false;
       try {
-        const response = await fetch(
-          apiUrl || process.env.NEXT_PUBLIC_CHAT_API_URL || "/api/chat",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              message: text,
-              history,
-              sessionId: sessionId.current,
-            }),
+        const initialMessages: AgUiMessage[] = [...messages, user]
+          .filter((message) => message.id !== "welcome")
+          .slice(-11)
+          .map((message) => ({
+            id: message.id,
+            role: message.role,
+            content: message.response?.answer ?? message.content,
+          }));
+        const agent = new HttpAgent({
+          url: apiUrl || process.env.NEXT_PUBLIC_CHAT_API_URL || "/api/ag-ui",
+          threadId: sessionId.current,
+          initialMessages,
+        });
+        const subscriber: AgentSubscriber = {
+          onTextMessageStartEvent: ({ event }) => {
+            setMessages((current) => [
+              ...current,
+              { id: event.messageId, role: "assistant", content: "" },
+            ]);
           },
-        );
-        const json: unknown = await response.json();
-        if (
-          !response.ok ||
-          typeof json !== "object" ||
-          json === null ||
-          !("data" in json)
-        ) {
-          const msg =
-            typeof json === "object" && json && "error" in json
-              ? (json as { error?: { message?: string } }).error?.message
-              : undefined;
-          throw new Error(msg || "I couldn’t complete that request.");
-        }
-        const data = (json as { data: AssistantResponse }).data;
-        setMessages((current) => [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: data.answer,
-            response: data,
+          onTextMessageContentEvent: ({ event }) => {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === event.messageId
+                  ? { ...message, content: message.content + event.delta }
+                  : message,
+              ),
+            );
           },
-        ]);
+          onCustomEvent: ({ event }) => {
+            if (event.name !== "kagen.ui.response") return;
+            const value =
+              typeof event.value === "object" && event.value !== null
+                ? event.value
+                : {};
+            const messageId =
+              "messageId" in value && typeof value.messageId === "string"
+                ? value.messageId
+                : "";
+            const dynamicUi = assistantResponseSchema.safeParse({
+              answer: "dynamic",
+              ...value,
+            });
+            if (!messageId || !dynamicUi.success) return;
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === messageId
+                  ? {
+                      ...message,
+                      response: {
+                        ...dynamicUi.data,
+                        answer: message.content,
+                      },
+                    }
+                  : message,
+              ),
+            );
+          },
+          onRunErrorEvent: ({ event }) => {
+            protocolErrorReceived = true;
+            setMessages((current) => [
+              ...current,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: event.message,
+                errorCode: event.code,
+              },
+            ]);
+          },
+        };
+        await agent.runAgent({}, subscriber);
         const duration = performance.now() - startedAt;
         emit("response-received", {
           durationCategory:
             duration < 2000 ? "fast" : duration < 6000 ? "normal" : "slow",
-          hasCards: data.cards.length > 0,
+          protocol: "ag-ui",
         });
-      } catch (error) {
-        setMessages((current) => [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content:
-              error instanceof Error
-                ? error.message
-                : "Something went wrong. Please try again.",
-            failedPrompt: text,
-          },
-        ]);
+      } catch {
+        // RUN_ERROR is the sole user-visible failure state. A transport failure
+        // never becomes a locally invented assistant response.
         emit("api-error");
-        postParent("KAGEN_CHAT_ERROR", { message: "Chat request failed" });
+        if (!protocolErrorReceived) {
+          postParent("KAGEN_CHAT_ERROR", { message: "AG-UI transport failed" });
+        }
       } finally {
         setLoading(false);
       }
@@ -232,12 +260,7 @@ export function ChatWindow({
       </div>
       <div className="conversation" aria-live="polite">
         {messages.map((message) => (
-          <Message
-            key={message.id}
-            message={message}
-            onSuggestion={send}
-            onRetry={send}
-          />
+          <Message key={message.id} message={message} onSuggestion={send} />
         ))}
         {messages.length === 1 && (
           <div className="starters">

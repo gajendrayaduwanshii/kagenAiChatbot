@@ -9,5 +9,5 @@ export interface ChatMessage {
   role: ChatRole;
   content: string;
   response?: AssistantResponse;
-  failedPrompt?: string;
+  errorCode?: string;
 }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { detectIntent } from "./intent-detector";
+import { detectLanguageStyle } from "./language-style";
 import { htmlToText } from "./html-utils";
 import { flattenAcf, normalizeContent } from "./content-normalizer";
 import { relevanceScore } from "./relevance-score";
@@ -41,6 +42,24 @@ afterEach(() => {
 });
 
 describe("intent detection", () => {
+  it("recognizes standalone greetings without searching WordPress", () => {
+    expect(detectIntent("Hi")).toBe("greeting");
+    expect(detectIntent("नमस्ते")).toBe("greeting");
+    expect(detectIntent("hello Kagen!")).toBe("greeting");
+    expect(detectIntent("Hi, what is Kagen PRISM?")).toBe("product_detail");
+  });
+  it("recognizes help requests and common typos without content retrieval", () => {
+    expect(detectIntent("I need help")).toBe("help");
+    expect(detectIntent("i heed help")).toBe("help");
+    expect(detectIntent("Hi i need help")).toBe("help");
+    expect(detectIntent("Hello, please help me")).toBe("help");
+    expect(detectIntent("Namaste mujhe help chahiye")).toBe("help");
+    expect(detectIntent("mujhe help chahiye")).toBe("help");
+    expect(detectIntent("मुझे मदद चाहिए")).toBe("help");
+    expect(detectIntent("Help me understand Kagen PRISM")).toBe(
+      "product_detail",
+    );
+  });
   it("detects specific intents before broad product terms", () => {
     expect(detectIntent("Tell me about Kagen PRISM platform")).toBe(
       "product_detail",
@@ -48,6 +67,20 @@ describe("intent detection", () => {
     expect(detectIntent("do you know about kaga eye")).toBe("about");
     expect(detectIntent("Show customer stories")).toBe("case_studies");
     expect(detectIntent("Book a demo")).toBe("contact");
+  });
+});
+describe("language style detection", () => {
+  it("keeps typo-filled English in English", () => {
+    expect(detectLanguageStyle("can you expain you products")).toBe("English");
+    expect(detectLanguageStyle("i heed help")).toBe("English");
+  });
+  it("distinguishes Devanagari Hindi and Roman-script Hinglish", () => {
+    expect(detectLanguageStyle("आपके products क्या हैं?")).toBe(
+      "Hindi (Devanagari)",
+    );
+    expect(detectLanguageStyle("aapke products kya hain")).toBe(
+      "Hinglish (Roman script)",
+    );
   });
 });
 describe("HTML utilities", () => {

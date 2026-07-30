@@ -112,7 +112,7 @@ AI_API_KEY=replace-with-a-server-side-secret
 
 ALLOWED_ORIGINS=http://localhost:3000,https://kagen.ai,https://www.kagen.ai
 WIDGET_ALLOWED_ORIGINS=http://localhost:3000,https://kagen.ai,https://www.kagen.ai
-NEXT_PUBLIC_CHAT_API_URL=/api/chat
+NEXT_PUBLIC_CHAT_API_URL=/api/ag-ui
 ```
 
 | Variable                   | Use                                                |
@@ -125,7 +125,7 @@ NEXT_PUBLIC_CHAT_API_URL=/api/chat
 | `AI_API_KEY`               | Server-only provider secret                        |
 | `ALLOWED_ORIGINS`          | Exact origins accepted by application APIs         |
 | `WIDGET_ALLOWED_ORIGINS`   | Exact external widget host origins                 |
-| `NEXT_PUBLIC_CHAT_API_URL` | Browser chat endpoint, normally `/api/chat`        |
+| `NEXT_PUBLIC_CHAT_API_URL` | Browser AG-UI endpoint, normally `/api/ag-ui`      |
 
 Compatibility aliases `LLM_PROVIDER`, `LLM_MODEL`, and `LLM_API_KEY` remain
 supported in `src/lib/env.ts`.
@@ -141,7 +141,7 @@ AI_BASE_URL=https://integrate.api.nvidia.com/v1
 AI_API_KEY=replace-with-production-secret
 ALLOWED_ORIGINS=https://kagen.ai,https://www.kagen.ai
 WIDGET_ALLOWED_ORIGINS=https://kagen.ai,https://www.kagen.ai
-NEXT_PUBLIC_CHAT_API_URL=/api/chat
+NEXT_PUBLIC_CHAT_API_URL=/api/ag-ui
 ```
 
 A Vercel deployment cannot access WordPress running on a developer's
@@ -151,7 +151,10 @@ A Vercel deployment cannot access WordPress running on a developer's
 
 ```text
 User message
-  → POST /api/chat
+  → official AG-UI HttpAgent
+  → POST /api/ag-ui with RunAgentInput
+  → RUN_STARTED event
+  → grounded `/api/chat` orchestration
   → Zod request validation
   → exact-origin CORS + rate limiting
   → fetch all published WordPress objects
@@ -163,6 +166,8 @@ User message
   → strict grounded JSON response
   → server-generated WordPress cards and source links
   → Zod response validation
+  → streaming TEXT_MESSAGE_* + kagen.ui.response events
+  → RUN_FINISHED or authoritative RUN_ERROR event
   → chatbot UI
 ```
 
@@ -383,7 +388,7 @@ styles and chatbot styles remain isolated.
 ```html
 <script
   src="https://YOUR-CHAT-DOMAIN/kagen-chat-widget.js"
-  data-api-url="https://YOUR-CHAT-DOMAIN/api/chat"
+  data-api-url="https://YOUR-CHAT-DOMAIN/api/ag-ui"
   data-title="Ask Kagen AI"
   data-welcome-message="Hi! How can I help you explore Kagen?"
   data-primary-color="#0063ce"
@@ -443,7 +448,7 @@ available at the URLs used by the script and API:
 ```html
 <script
   src="http://localhost:3000/kagen-chat-widget.js?v=2"
-  data-api-url="http://localhost:3000/api/chat"
+  data-api-url="http://localhost:3000/api/ag-ui"
   data-primary-color="#0063ce"
   defer
 ></script>
@@ -476,7 +481,7 @@ function kagen_chat_widget_attributes($tag, $handle) {
 
   return str_replace(
     ' src=',
-    ' data-api-url="https://YOUR-CHAT-DOMAIN/api/chat" data-title="Ask Kagen AI" data-primary-color="#0063ce" data-position="bottom-right" src=',
+    ' data-api-url="https://YOUR-CHAT-DOMAIN/api/ag-ui" data-title="Ask Kagen AI" data-primary-color="#0063ce" data-position="bottom-right" src=',
     $tag
   );
 }

@@ -53,7 +53,7 @@ export default function WidgetPreview() {
         position,
         ...(deployment
           ? {
-              apiUrl: `${deployment}/api/chat`,
+              apiUrl: `${deployment}/api/ag-ui`,
               parentOrigin: deployment,
             }
           : {}),
@@ -63,7 +63,7 @@ export default function WidgetPreview() {
   const snippetOrigin = deployment || "https://YOUR-KAGEN-CHAT-DOMAIN.example";
   const snippet = `<script
   src="${snippetOrigin}/kagen-chat-widget.js"
-  data-api-url="${snippetOrigin}/api/chat"
+  data-api-url="${snippetOrigin}/api/ag-ui"
   data-title="Ask Kagen AI"
   data-welcome-message="Hi! How can I help you explore Kagen?"
   data-primary-color="${color}"

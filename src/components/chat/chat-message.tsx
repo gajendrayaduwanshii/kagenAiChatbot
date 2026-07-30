@@ -7,11 +7,9 @@ import { ResultCard } from "./result-card";
 export function ChatMessage({
   message,
   onSuggestion,
-  onRetry,
 }: {
   message: Message;
   onSuggestion: (value: string) => void;
-  onRetry: (value: string) => void;
 }) {
   const assistant = message.role === "assistant";
   return (
@@ -37,13 +35,8 @@ export function ChatMessage({
           ) : (
             message.content
           )}
-          {message.failedPrompt && (
-            <button
-              className="retry"
-              onClick={() => onRetry(message.failedPrompt!)}
-            >
-              Try again
-            </button>
+          {message.errorCode && (
+            <span className="message-error-code">{message.errorCode}</span>
           )}
         </div>
         {message.response?.cards.length ? (

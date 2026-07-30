@@ -1,4 +1,6 @@
 export type Intent =
+  | "greeting"
+  | "help"
   | "products"
   | "product_detail"
   | "case_studies"
@@ -14,6 +16,24 @@ const includes = (text: string, terms: string[]) =>
 
 export function detectIntent(query: string): Intent {
   const q = query.toLowerCase().replace(/\s+/g, " ").trim();
+  const greeting = q.replace(/[!,.?।]+$/g, "").trim();
+  if (
+    /^(hi|hello|hey|namaste|namaskar|हाय|नमस्ते|नमस्कार)( (there|kagen|kagen ai))?$/.test(
+      greeting,
+    )
+  )
+    return "greeting";
+  const helpRequest = greeting
+    .replace(/^(hi|hello|hey|namaste|namaskar|हाय|नमस्ते|नमस्कार)[,\s]+/, "")
+    .replace(/\b(please|pls|plz)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (
+    /^(help|help me|i (need|heed|nead|want) help|can you help me|could you help me|mujhe (help|madad) (chahiye|chaiye)|meri (help|madad) karo|मुझे मदद चाहिए|मेरी मदद करो)$/.test(
+      helpRequest,
+    )
+  )
+    return "help";
   if (
     includes(q, [
       "case study",
