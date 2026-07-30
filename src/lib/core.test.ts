@@ -3,7 +3,11 @@ import { detectIntent } from "./intent-detector";
 import { htmlToText } from "./html-utils";
 import { flattenAcf, normalizeContent } from "./content-normalizer";
 import { relevanceScore } from "./relevance-score";
-import { assistantResponseSchema, filterResponseUrls } from "./llm/schemas";
+import {
+  assistantResponseSchema,
+  filterResponseUrls,
+  normalizeAssistantResponse,
+} from "./llm/schemas";
 import { retrieveContent } from "./content-retriever";
 import {
   buildContentDetail,
@@ -34,6 +38,11 @@ import {
   retrieveFromIndex,
 } from "./search-retriever";
 import { fetchAllPublishedContent } from "./kagen-api";
+import {
+  canUseEnglishQueryDirectly,
+  prepareEnglishQuery,
+} from "./query-language";
+import { greetingResponse, isGreeting } from "./conversation";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -48,6 +57,72 @@ describe("intent detection", () => {
     expect(detectIntent("do you know about kaga eye")).toBe("about");
     expect(detectIntent("Show customer stories")).toBe("case_studies");
     expect(detectIntent("Book a demo")).toBe("contact");
+  });
+});
+describe("query language preparation", () => {
+  it("uses deterministic preparation for English queries", () => {
+    expect(canUseEnglishQueryDirectly("Tell me about Kagen products")).toBe(
+      true,
+    );
+    expect(prepareEnglishQuery("Tell me about Kagen products")).toMatchObject({
+      englishQuery: "Tell me about Kagen products",
+      responseLanguage: "English",
+    });
+  });
+
+  it("sends Roman Hindi and non-Latin queries to translation", () => {
+    expect(
+      canUseEnglishQueryDirectly("mujhe Kagen products ke bare mein batao"),
+    ).toBe(false);
+    expect(canUseEnglishQueryDirectly("केगन के उत्पाद बताएं")).toBe(false);
+  });
+});
+describe("normal conversation", () => {
+  it("recognizes standalone greetings and returns action chips", () => {
+    expect(isGreeting("Hi")).toBe(true);
+    expect(isGreeting("hello!")).toBe(true);
+    expect(isGreeting("hi, explain Kagen products")).toBe(false);
+    expect(greetingResponse().suggestions).toEqual([
+      "Explore Kagen products",
+      "Show me case studies",
+      "What is Kagen PRISM?",
+      "Contact Kagen",
+    ]);
+  });
+});
+describe("assistant response transport normalization", () => {
+  it("bounds WordPress fields and ignores an invalid optional image", () => {
+    const result = normalizeAssistantResponse({
+      answer: "A grounded answer",
+      cards: [
+        {
+          type: "page",
+          title: "T".repeat(240),
+          description: "D".repeat(620),
+          url: "https://kagen.ai/example",
+          image: "not-a-url",
+          badge: "B".repeat(80),
+        },
+      ],
+      suggestions: ["S".repeat(200)],
+      sources: [
+        {
+          title: "T".repeat(240),
+          url: "https://kagen.ai/example",
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.cards[0]).toMatchObject({
+      title: "T".repeat(200),
+      description: "D".repeat(500),
+      image: undefined,
+      badge: "B".repeat(50),
+    });
+    expect(result.data.suggestions[0]).toHaveLength(160);
+    expect(result.data.sources[0]?.title).toHaveLength(200);
   });
 });
 describe("HTML utilities", () => {

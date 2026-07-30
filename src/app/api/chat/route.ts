@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { corsHeaders } from "@/lib/cors";
+import { greetingResponse, isGreeting } from "@/lib/conversation";
 import { detectIntent } from "@/lib/intent-detector";
+import { getEnv } from "@/lib/env";
 import { fetchKagen } from "@/lib/kagen-api";
 import { getLLMProvider } from "@/lib/llm";
 import { assistantResponseSchema } from "@/lib/llm/schemas";
 import { rateLimit } from "@/lib/rate-limit";
+import {
+  canUseEnglishQueryDirectly,
+  prepareEnglishQuery,
+} from "@/lib/query-language";
 import { buildSearchDocument } from "@/lib/search-index";
 import { retrieveFromIndex } from "@/lib/search-retriever";
 import type { NormalizedContent } from "@/types/wordpress";
@@ -92,18 +98,36 @@ export async function POST(request: NextRequest) {
       parsed.error.issues[0]?.message ?? "Invalid request.",
       cors.headers,
     );
+  if (isGreeting(parsed.data.message)) {
+    return NextResponse.json(
+      { success: true, data: greetingResponse() },
+      { headers: { ...cors.headers, "Cache-Control": "no-store" } },
+    );
+  }
   let preparedQuery;
-  try {
-    preparedQuery = await getLLMProvider().prepareMultilingualQuery(
-      parsed.data.message,
-    );
-  } catch {
-    return error(
-      503,
-      "AI_TRANSLATION_UNAVAILABLE",
-      "The query language could not be processed safely. Please try again.",
-      cors.headers,
-    );
+  if (canUseEnglishQueryDirectly(parsed.data.message)) {
+    preparedQuery = prepareEnglishQuery(parsed.data.message);
+  } else {
+    try {
+      preparedQuery = await getLLMProvider().prepareMultilingualQuery(
+        parsed.data.message,
+      );
+    } catch {
+      if (!getEnv().AI_API_KEY) {
+        return error(
+          503,
+          "AI_NOT_CONFIGURED",
+          "The AI provider is not configured. Add AI_API_KEY to the server environment and restart the application.",
+          cors.headers,
+        );
+      }
+      return error(
+        503,
+        "AI_TRANSLATION_UNAVAILABLE",
+        "The query language could not be processed safely. Please try again.",
+        cors.headers,
+      );
+    }
   }
   const effectiveMessage = preparedQuery.englishQuery;
   const intent = detectIntent(effectiveMessage);
@@ -152,8 +176,8 @@ export async function POST(request: NextRequest) {
     }
   }
   // A request for blogs means the published collection, not a keyword search
-  // for the word "blog". This also handles conversational Hindi/English queries
-  // such as "mujhe aapke blogs ke bare mein batao".
+  // for the word "blog". This also handles conversational multilingual queries
+  // asking for information about the published blog collection.
   if (intent === "blogs") {
     try {
       const posts = (await fetchKagen("/content?type=post&per_page=100"))
@@ -238,6 +262,14 @@ export async function POST(request: NextRequest) {
       }),
     );
     let response;
+    if (!getEnv().AI_API_KEY) {
+      return error(
+        503,
+        "AI_NOT_CONFIGURED",
+        "The AI provider is not configured. Add AI_API_KEY to the server environment and restart the application.",
+        cors.headers,
+      );
+    }
     try {
       response = await getLLMProvider().generateStructuredResponse({
         message: effectiveMessage,

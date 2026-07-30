@@ -13,6 +13,7 @@ strictly in Kagen's published WordPress content.
 Last verified: **24 July 2026**
 
 - Next.js `16.2.11`, App Router, React, TypeScript, Zod.
+- Agent-to-UI transport: AG-UI protocol over HTTP Server-Sent Events.
 - AI provider: NVIDIA NIM through its OpenAI-compatible API.
 - Active model configuration: `meta/llama-3.1-8b-instruct`.
 - WordPress is the only knowledge source. There is no hardcoded production
@@ -113,19 +114,21 @@ AI_API_KEY=replace-with-a-server-side-secret
 ALLOWED_ORIGINS=http://localhost:3000,https://kagen.ai,https://www.kagen.ai
 WIDGET_ALLOWED_ORIGINS=http://localhost:3000,https://kagen.ai,https://www.kagen.ai
 NEXT_PUBLIC_CHAT_API_URL=/api/chat
+NEXT_PUBLIC_AG_UI_API_URL=/api/ag-ui
 ```
 
-| Variable                   | Use                                                |
-| -------------------------- | -------------------------------------------------- |
-| `KAGEN_API_BASE_URL`       | Server-side Kagen REST API root                    |
-| `KAGEN_PUBLIC_SITE_URL`    | Rewrites local WP links to the correct public site |
-| `AI_PROVIDER`              | Provider identifier (`nvidia` is active)           |
-| `AI_MODEL`                 | OpenAI-compatible model ID                         |
-| `AI_BASE_URL`              | OpenAI-compatible API base                         |
-| `AI_API_KEY`               | Server-only provider secret                        |
-| `ALLOWED_ORIGINS`          | Exact origins accepted by application APIs         |
-| `WIDGET_ALLOWED_ORIGINS`   | Exact external widget host origins                 |
-| `NEXT_PUBLIC_CHAT_API_URL` | Browser chat endpoint, normally `/api/chat`        |
+| Variable                    | Use                                                |
+| --------------------------- | -------------------------------------------------- |
+| `KAGEN_API_BASE_URL`        | Server-side Kagen REST API root                    |
+| `KAGEN_PUBLIC_SITE_URL`     | Rewrites local WP links to the correct public site |
+| `AI_PROVIDER`               | Provider identifier (`nvidia` is active)           |
+| `AI_MODEL`                  | OpenAI-compatible model ID                         |
+| `AI_BASE_URL`               | OpenAI-compatible API base                         |
+| `AI_API_KEY`                | Server-only provider secret                        |
+| `ALLOWED_ORIGINS`           | Exact origins accepted by application APIs         |
+| `WIDGET_ALLOWED_ORIGINS`    | Exact external widget host origins                 |
+| `NEXT_PUBLIC_CHAT_API_URL`  | Browser chat endpoint, normally `/api/chat`        |
+| `NEXT_PUBLIC_AG_UI_API_URL` | Optional AG-UI endpoint, normally `/api/ag-ui`     |
 
 Compatibility aliases `LLM_PROVIDER`, `LLM_MODEL`, and `LLM_API_KEY` remain
 supported in `src/lib/env.ts`.
@@ -142,6 +145,7 @@ AI_API_KEY=replace-with-production-secret
 ALLOWED_ORIGINS=https://kagen.ai,https://www.kagen.ai
 WIDGET_ALLOWED_ORIGINS=https://kagen.ai,https://www.kagen.ai
 NEXT_PUBLIC_CHAT_API_URL=/api/chat
+NEXT_PUBLIC_AG_UI_API_URL=/api/ag-ui
 ```
 
 A Vercel deployment cannot access WordPress running on a developer's
@@ -151,7 +155,9 @@ A Vercel deployment cannot access WordPress running on a developer's
 
 ```text
 User message
-  → POST /api/chat
+  → AG-UI HttpAgent
+  → POST /api/ag-ui (AG-UI event stream)
+  → internal grounded POST /api/chat workflow
   → Zod request validation
   → exact-origin CORS + rate limiting
   → fetch all published WordPress objects
@@ -258,6 +264,9 @@ production application.
 The provider abstraction is OpenAI-compatible; NVIDIA NIM is the active
 provider. The system prompt:
 
+- bypasses the translation request for queries that are already English
+- uses the provider language-preparation request only for multilingual input
+
 - identifies the supplied context as the Top 5 retrieved Kagen chunks
 - requires answers only from explicit context evidence
 - supports mid-article quotations and paraphrased questions
@@ -270,6 +279,19 @@ The LLM does not create cards or sources. The API route creates them directly
 from retrieved WordPress documents.
 
 ## API contracts
+
+### `POST /api/ag-ui`
+
+The primary chat UI uses the open AG-UI protocol. It sends a standard
+`RunAgentInput` and receives an HTTP Server-Sent Events stream containing:
+
+- `RUN_STARTED` and `RUN_FINISHED` lifecycle events
+- `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT`, and `TEXT_MESSAGE_END`
+- a `KAGEN_RESPONSE` custom event containing validated Kagen cards, sources,
+  suggestions, confidence, and insufficient-context metadata
+
+The endpoint adapts the existing grounded `/api/chat` workflow, so WordPress
+retrieval, validation, CORS, rate limiting, and response rules remain unchanged.
 
 ### `POST /api/chat`
 
