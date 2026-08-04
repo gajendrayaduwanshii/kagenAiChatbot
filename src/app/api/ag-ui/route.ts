@@ -117,13 +117,33 @@ export async function POST(request: NextRequest) {
     }),
   });
   const chatResponse = await chatPost(chatRequest);
-  const chatPayload: unknown = await chatResponse.json();
+  let chatPayload: unknown = await chatResponse.json();
 
   if (!chatResponse.ok) {
-    return NextResponse.json(chatPayload, {
-      status: chatResponse.status,
-      headers: cors.headers,
-    });
+    const errorPayload =
+      typeof chatPayload === "object" &&
+      chatPayload !== null &&
+      "error" in chatPayload &&
+      typeof chatPayload.error === "object" &&
+      chatPayload.error !== null
+        ? chatPayload.error
+        : undefined;
+    const message =
+      errorPayload &&
+      "message" in errorPayload &&
+      typeof errorPayload.message === "string"
+        ? errorPayload.message
+        : "The chat service is currently unavailable. Please check your connection and try again.";
+    chatPayload = {
+      data: {
+        answer: message,
+        cards: [],
+        sources: [],
+        suggestions: [],
+        confidence: "low",
+        insufficientContext: true,
+      },
+    };
   }
 
   const responseResult = normalizeAssistantResponse(
