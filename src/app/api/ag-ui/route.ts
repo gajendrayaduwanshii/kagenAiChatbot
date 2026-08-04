@@ -23,8 +23,10 @@ function jsonError(
 }
 
 export async function OPTIONS(request: NextRequest) {
-  const cors = corsHeaders(request.headers.get("origin"));
-  if (!cors.isAllowed) {
+  const origin = request.headers.get("origin");
+  const cors = corsHeaders(origin);
+  const isSameOrigin = origin === new URL(request.url).origin;
+  if (!cors.isAllowed && !isSameOrigin) {
     return jsonError(
       403,
       "ORIGIN_NOT_ALLOWED",
@@ -36,8 +38,10 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const cors = corsHeaders(request.headers.get("origin"));
-  if (!cors.isAllowed) {
+  const origin = request.headers.get("origin");
+  const cors = corsHeaders(origin);
+  const isSameOrigin = origin === new URL(request.url).origin;
+  if (!cors.isAllowed && !isSameOrigin) {
     return jsonError(
       403,
       "ORIGIN_NOT_ALLOWED",
