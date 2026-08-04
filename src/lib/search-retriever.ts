@@ -1,4 +1,5 @@
 import { fetchAllPublishedContent } from "./kagen-api";
+import { detectIntent } from "./intent-detector";
 import {
   buildSearchIndex,
   normalizeSearchText,
@@ -267,24 +268,21 @@ export async function retrieveFromIndex(
 ): Promise<RetrievalResult> {
   const index = await loadSearchIndex();
   const normalizedQuery = normalizeQuery(query);
-  const isProductList = /\b(all|available|show)\b.*\bproducts?\b/i.test(query);
+  const isProductList =
+    detectIntent(query) === "products" &&
+    /\b(products?|solutions?)\b/i.test(query);
   if (isProductList) {
     const matches = index
-      .filter(
-        (document) =>
-          document.type === "product" ||
-          (document.type === "page" && /\bprism\b/i.test(document.title)),
-      )
+      .filter((document) => document.type === "product")
       .map((document) => ({
         document,
-        score: document.type === "product" ? 100 : 70,
+        score: 100,
         matchedFields: ["product-like"],
         selectedPassages: document.chunks[0]?.text
           ? [document.chunks[0].text]
           : [],
       }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
+      .sort((a, b) => a.document.title.localeCompare(b.document.title));
     return {
       normalizedQuery,
       indexedDocuments: index.length,

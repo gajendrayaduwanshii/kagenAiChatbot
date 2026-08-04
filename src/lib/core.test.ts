@@ -243,6 +243,77 @@ describe("structured responses", () => {
   });
 });
 describe("WordPress retrieval", () => {
+  it("returns every product and excludes other content for a product-list query", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify([
+            {
+              id: 1,
+              type: "product",
+              slug: "product-one",
+              link: "https://kagen.ai/product/one/",
+              title: { rendered: "Product One" },
+              content: { rendered: "<p>First published Kagen product.</p>" },
+            },
+            {
+              id: 2,
+              type: "product",
+              slug: "product-two",
+              link: "https://kagen.ai/product/two/",
+              title: { rendered: "Product Two" },
+              content: { rendered: "<p>Second published Kagen product.</p>" },
+            },
+            {
+              id: 3,
+              type: "post",
+              slug: "product-post",
+              link: "https://kagen.ai/blog/product-post/",
+              title: { rendered: "Product Post" },
+              content: { rendered: "<p>A post about Kagen products.</p>" },
+            },
+            {
+              id: 4,
+              type: "case-study",
+              slug: "product-story",
+              link: "https://kagen.ai/case-study/product-story/",
+              title: { rendered: "Product Customer Story" },
+              content: { rendered: "<p>A customer product story.</p>" },
+            },
+            {
+              id: 5,
+              type: "page",
+              slug: "about-us",
+              link: "https://kagen.ai/about-us/",
+              title: { rendered: "About Us" },
+              content: { rendered: "<p>About the Kagen company.</p>" },
+            },
+          ]),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "X-WP-TotalPages": "1",
+            },
+          },
+        ),
+      ),
+    );
+
+    const result = await retrieveFromIndex("Explain Kagen products");
+
+    expect(result.isProductList).toBe(true);
+    expect(result.matches.map(({ document }) => document.type)).toEqual([
+      "product",
+      "product",
+    ]);
+    expect(result.matches.map(({ document }) => document.title)).toEqual([
+      "Product One",
+      "Product Two",
+    ]);
+  });
+
   it("fetches product data dynamically and ranks matching products", async () => {
     const products = [
       {
