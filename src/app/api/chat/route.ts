@@ -175,25 +175,186 @@ export async function POST(request: NextRequest) {
       );
     }
   }
+  if (/\bproducts?\b/i.test(effectiveMessage)) {
+    try {
+      const [listingItems, productItems] = await Promise.all([
+        fetchKagen("/pages/products"),
+        fetchKagen("/content?type=product&per_page=100"),
+      ]);
+      const listing = listingItems[0]
+        ? buildSearchDocument(listingItems[0])
+        : undefined;
+      const products = productItems
+        .filter((item) => item.type === "product")
+        .map(buildSearchDocument)
+        .sort(
+          (a, b) => Date.parse(b.modified ?? "") - Date.parse(a.modified ?? ""),
+        )
+        .slice(0, 5);
+      if (!listing || !products.length) {
+        throw new Error("Product collection is unavailable");
+      }
+      const documents = [listing, ...products];
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            answer: buildCollectionStory(
+              "products",
+              { title: listing.title, url: listing.url },
+              products,
+            ),
+            cards: documents.map((document, index) => ({
+              type: index === 0 ? "page" : "product",
+              title: document.title,
+              description: (
+                document.descriptions[0] ??
+                document.textSegments[0] ??
+                document.title
+              ).slice(0, 500),
+              url: document.url,
+              image: document.image,
+              badge: index === 0 ? "products" : "product",
+            })),
+            sources: documents.map((document) => ({
+              title: document.title,
+              url: document.url,
+            })),
+            suggestions: [],
+            confidence: "high",
+            insufficientContext: false,
+          },
+        },
+        { headers: { ...cors.headers, "Cache-Control": "no-store" } },
+      );
+    } catch {
+      return error(
+        503,
+        "CONTENT_UNAVAILABLE",
+        "Kagen’s product collection is temporarily unavailable.",
+        cors.headers,
+      );
+    }
+  }
+  // Case-study collection requests must never fall through to keyword-based
+  // global retrieval, where blog posts mentioning "case studies" can outrank
+  // the actual collection. Return the listing page followed by the five most
+  // recently modified published case studies.
+  if (
+    intent === "case_studies" &&
+    /\bcase\s+stud(?:y|ies)\b/i.test(effectiveMessage)
+  ) {
+    try {
+      const [listingItems, caseStudyItems] = await Promise.all([
+        fetchKagen("/pages/case-studies"),
+        fetchKagen("/content?type=case-studies&per_page=100"),
+      ]);
+      const listing = listingItems[0]
+        ? buildSearchDocument(listingItems[0])
+        : undefined;
+      const caseStudies = caseStudyItems
+        .filter((item) => item.type?.includes("case"))
+        .map(buildSearchDocument)
+        .sort(
+          (a, b) => Date.parse(b.modified ?? "") - Date.parse(a.modified ?? ""),
+        )
+        .slice(0, 5);
+      if (!listing || !caseStudies.length) {
+        throw new Error("Case-study collection is unavailable");
+      }
+      const documents = [listing, ...caseStudies];
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            answer: buildCollectionStory(
+              "case studies",
+              { title: listing.title, url: listing.url },
+              caseStudies,
+            ),
+            cards: documents.map((document, index) => ({
+              type: index === 0 ? "page" : "case-study",
+              title: document.title,
+              description: (
+                document.descriptions[0] ??
+                document.textSegments[0] ??
+                document.title
+              ).slice(0, 500),
+              url: document.url,
+              image: document.image,
+              badge: index === 0 ? "case studies" : "case study",
+            })),
+            sources: documents.map((document) => ({
+              title: document.title,
+              url: document.url,
+            })),
+            suggestions: [],
+            confidence: "high",
+            insufficientContext: false,
+          },
+        },
+        { headers: { ...cors.headers, "Cache-Control": "no-store" } },
+      );
+    } catch {
+      return error(
+        503,
+        "CONTENT_UNAVAILABLE",
+        "Kagen’s case-study collection is temporarily unavailable.",
+        cors.headers,
+      );
+    }
+  }
   // A request for blogs means the published collection, not a keyword search
   // for the word "blog". This also handles conversational multilingual queries
   // asking for information about the published blog collection.
-  if (intent === "blogs") {
+  if (intent === "blogs" && /\bblogs?\b/i.test(effectiveMessage)) {
     try {
-      const posts = (await fetchKagen("/content?type=post&per_page=100"))
+      const [listingItems, postItems] = await Promise.all([
+        fetchKagen("/pages/blog").catch(() => []),
+        fetchKagen("/content?type=post&per_page=100"),
+      ]);
+      const listing = listingItems[0]
+        ? buildSearchDocument(listingItems[0])
+        : undefined;
+      const posts = postItems
+        .filter((item) => item.type === "post")
         .map(buildSearchDocument)
         .sort(
           (a, b) => Date.parse(b.modified ?? "") - Date.parse(a.modified ?? ""),
         )
         .slice(0, 5);
       if (!posts.length) throw new Error("Blog collection is unavailable");
+      const listingCard = listing
+        ? {
+            type: "page" as const,
+            title: listing.title,
+            description: (
+              listing.descriptions[0] ??
+              listing.textSegments[0] ??
+              listing.title
+            ).slice(0, 500),
+            url: listing.url,
+            image: listing.image,
+            badge: "blogs",
+          }
+        : {
+            type: "page" as const,
+            title: "Blogs",
+            description: "Explore Kagen's published blog articles.",
+            url: `${getEnv().KAGEN_PUBLIC_SITE_URL.replace(/\/$/, "")}/blog/`,
+            badge: "blogs",
+          };
       return NextResponse.json(
         {
           success: true,
           data: {
-            answer: preparedQuery.blogsAnswer,
-            cards: posts.map((document) => ({
-              type: "blog",
+            answer: buildCollectionStory(
+              "blogs",
+              { title: listingCard.title, url: listingCard.url },
+              posts,
+            ),
+            cards: [listingCard, ...posts.map((document) => ({
+              type: "blog" as const,
               title: document.title,
               description: (
                 document.descriptions[0] ??
@@ -203,11 +364,14 @@ export async function POST(request: NextRequest) {
               url: document.url,
               image: document.image,
               badge: "blog",
-            })),
-            sources: posts.map((document) => ({
+            }))],
+            sources: [
+              { title: listingCard.title, url: listingCard.url },
+              ...posts.map((document) => ({
               title: document.title,
               url: document.url,
-            })),
+              })),
+            ],
             suggestions: [],
             confidence: "high",
             insufficientContext: false,
@@ -335,4 +499,44 @@ function cardType(
   if (type === "post") return "blog";
   if (type === "event") return "event";
   return "page";
+}
+
+function buildCollectionStory(
+  label: string,
+  listing: { title: string; url: string },
+  items: Array<{
+    title: string;
+    url: string;
+    descriptions: string[];
+    textSegments: string[];
+  }>,
+): string {
+  const entries = items.map((item) => {
+    const description = cleanStoryDescription(
+      item.descriptions[0] ??
+      item.textSegments[0] ??
+      "Open the corresponding published Kagen page for more information.",
+    );
+    const ending = /[.!?…]$/.test(description) ? "" : ".";
+    return `[${item.title.replace(/[\[\]]/g, "")}](${item.url}) focuses on ${description.charAt(0).toLowerCase()}${description.slice(1)}${ending}`;
+  });
+  const heading = label
+    .split(" ")
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+  return `**Kagen ${heading}**\n\nKagen brings its published ${label} together to show how its capabilities, ideas, and real-world work address enterprise needs.\n\n**What You Can Explore**\n\n${entries.join(" ")}\n\n**How It Comes Together**\n\nTogether, these examples provide a connected view of Kagen’s approach rather than a simple catalogue. You can use the **${listing.title.replace(/[\[\]]/g, "")}** source below to continue exploring the full collection.`;
+}
+
+function cleanStoryDescription(value: string): string {
+  const clean = value.replace(/\s+/g, " ").trim();
+  if (clean.length <= 240) return clean;
+  const shortened = clean.slice(0, 240);
+  const sentenceEnd = Math.max(
+    shortened.lastIndexOf(". "),
+    shortened.lastIndexOf("! "),
+    shortened.lastIndexOf("? "),
+  );
+  if (sentenceEnd >= 100) return shortened.slice(0, sentenceEnd + 1);
+  const lastWord = shortened.lastIndexOf(" ");
+  return `${shortened.slice(0, lastWord > 0 ? lastWord : 240)}…`;
 }

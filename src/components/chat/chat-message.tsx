@@ -1,9 +1,8 @@
 "use client";
-import { Bot, ExternalLink, UserRound } from "lucide-react";
+import { ArrowRight, Bot, ExternalLink, UserRound } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage as Message } from "@/types/chat";
-import { ResultCard } from "./result-card";
 export function ChatMessage({
   message,
   onSuggestion,
@@ -20,6 +19,7 @@ export function ChatMessage({
         {assistant ? <Bot size={17} /> : <UserRound size={17} />}
       </div>
       <div className="message-wrap">
+        {assistant && <div className="message-author">Kagen Assistant</div>}
         <div className="bubble">
           {assistant ? (
             <ReactMarkdown
@@ -46,13 +46,6 @@ export function ChatMessage({
             </button>
           )}
         </div>
-        {message.response?.cards.length ? (
-          <div className="card-grid">
-            {message.response.cards.map((card) => (
-              <ResultCard key={`${card.url}-${card.title}`} card={card} />
-            ))}
-          </div>
-        ) : null}
         {message.response?.sources.length ? (
           <details className="sources">
             <summary>Sources ({message.response.sources.length})</summary>
@@ -82,7 +75,8 @@ export function ChatMessage({
           <div className="suggestions">
             {message.response.suggestions.map((s) => (
               <button key={s} onClick={() => onSuggestion(s)}>
-                {s}
+                <span>{s}</span>
+                <ArrowRight size={16} aria-hidden="true" />
               </button>
             ))}
           </div>

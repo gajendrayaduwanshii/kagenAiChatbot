@@ -17,6 +17,7 @@ const STOPWORDS = new Set([
   "can",
   "explain",
   "please",
+  "show",
   "what",
   "is",
   "the",
@@ -268,21 +269,33 @@ export async function retrieveFromIndex(
 ): Promise<RetrievalResult> {
   const index = await loadSearchIndex();
   const normalizedQuery = normalizeQuery(query);
+  const intent = detectIntent(query);
   const isProductList =
-    detectIntent(query) === "products" &&
-    /\b(products?|solutions?)\b/i.test(query);
+    intent === "products" &&
+    normalizedQuery
+      .split(" ")
+      .every((term) => ["kagen", "product", "products", "solution", "solutions"].includes(term));
   if (isProductList) {
     const matches = index
-      .filter((document) => document.type === "product")
+      .filter(
+        (document) =>
+          document.type === "product" ||
+          (document.type === "page" && document.slug === "products"),
+      )
       .map((document) => ({
         document,
         score: 100,
-        matchedFields: ["product-like"],
+        matchedFields: ["product-category"],
         selectedPassages: document.chunks[0]?.text
           ? [document.chunks[0].text]
           : [],
       }))
-      .sort((a, b) => a.document.title.localeCompare(b.document.title));
+      .sort((a, b) => {
+        if (a.document.slug === "products") return -1;
+        if (b.document.slug === "products") return 1;
+        return a.document.title.localeCompare(b.document.title);
+      })
+      .slice(0, 6);
     return {
       normalizedQuery,
       indexedDocuments: index.length,
@@ -299,8 +312,30 @@ export async function retrieveFromIndex(
       matches: [],
       isProductList,
     };
-  const idf = buildInverseDocumentFrequency(index);
-  const matches = index
+  const categoryIndex = index.filter((document) => {
+    if (intent === "products" || intent === "product_detail") {
+      return (
+        document.type === "product" ||
+        document.productLike ||
+        (document.type === "page" && document.slug === "products")
+      );
+    }
+    if (intent === "case_studies") {
+      return (
+        document.type.includes("case") ||
+        (document.type === "page" && document.slug === "case-studies")
+      );
+    }
+    if (intent === "blogs") {
+      return (
+        document.type === "post" ||
+        (document.type === "page" && ["blog", "blogs"].includes(document.slug))
+      );
+    }
+    return true;
+  });
+  const idf = buildInverseDocumentFrequency(categoryIndex);
+  const matches = categoryIndex
     .map((document) => rankSearchDocument(document, query, idf))
     .filter((match) => match.score >= 48 && match.selectedPassages.length > 0)
     .sort(

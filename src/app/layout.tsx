@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import "@copilotkit/react-ui/styles.css";
 import "./globals.css";
 export const metadata: Metadata = {
   title: "Kagen AI Assistant",

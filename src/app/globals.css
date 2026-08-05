@@ -434,6 +434,13 @@ button[aria-label="Thumbs down"] {
   padding: 24px 28px;
   scrollbar-width: thin;
 }
+.chat-disclaimer {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: left;
+}
 .message-row {
   display: flex;
   width: 100%;
@@ -463,6 +470,14 @@ button[aria-label="Thumbs down"] {
   min-width: 0;
   max-width: 88%;
 }
+.message-author {
+  margin: 0 0 5px 2px;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: left;
+}
 .user .message-wrap {
   display: flex;
   flex-direction: column;
@@ -489,6 +504,18 @@ button[aria-label="Thumbs down"] {
 .bubble p:last-child,
 .bubble ul:last-child {
   margin-bottom: 0;
+}
+.bubble h2,
+.bubble h3 {
+  margin: 14px 0 6px;
+  color: #172033;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+.bubble h2:first-child,
+.bubble h3:first-child {
+  margin-top: 0;
 }
 .bubble ul {
   padding-left: 20px;
@@ -645,11 +672,53 @@ button[aria-label="Thumbs down"] {
 }
 .suggestions {
   display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0;
   justify-content: flex-start;
   margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
   text-align: left;
+}
+.suggestions button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: #344054;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+}
+.suggestions button:last-child {
+  border-bottom: 0;
+}
+.suggestions button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.suggestions button svg {
+  flex: 0 0 auto;
+  color: var(--brand);
+  transition: transform 160ms ease;
+}
+.suggestions button:hover {
+  border-color: var(--line);
+  color: var(--brand-dark);
+  background: #f6faff;
+}
+.suggestions button:hover svg {
+  transform: translateX(3px);
 }
 .input-area {
   width: 100%;
